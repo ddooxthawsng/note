@@ -147,7 +147,7 @@ export default function ContextMenu() {
               <div className="absolute left-full top-0 ml-1 w-48 rounded-xl border border-gray-200/50 bg-white/95 p-1 shadow-lg backdrop-blur-md dark:border-gray-800/50 dark:bg-gray-900/95">
                 <button
                   onClick={() => handleAction(() => updateNote(targetId, { folderId: null }), 'Moved to root')}
-                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-xs text-gray-750 hover:bg-gray-100 dark:text-gray-350 dark:hover:bg-gray-880"
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-left text-xs text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-880"
                 >
                   No folder (Unassign)
                 </button>
@@ -155,7 +155,7 @@ export default function ContextMenu() {
                   <button
                     key={f.id}
                     onClick={() => handleAction(() => updateNote(targetId, { folderId: f.id }), `Moved to ${f.name}`)}
-                    className="flex w-full items-center gap-2 truncate rounded-lg px-2 py-1.5 text-left text-xs text-gray-750 hover:bg-gray-100 dark:text-gray-350 dark:hover:bg-gray-880"
+                    className="flex w-full items-center gap-2 truncate rounded-lg px-2 py-1.5 text-left text-xs text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-880"
                   >
                     <Folder size={12} className="shrink-0 text-gray-400" />
                     <span className="truncate">{f.name}</span>

@@ -226,7 +226,7 @@ export default function EditorModal() {
                   setTitle(e.target.value)
                 }}
                 placeholder="Untitled Note"
-                className="mb-1 w-full bg-transparent font-serif text-3xl font-normal text-ink dark:text-gray-150 outline-none placeholder:text-gray-300 dark:placeholder:text-gray-700"
+                className="mb-1 w-full bg-transparent font-serif text-3xl font-normal text-ink dark:text-gray-100 outline-none placeholder:text-gray-300 dark:placeholder:text-gray-700"
               />
 
               <div className="mb-4 text-xs text-ink-muted font-medium">{countWords(content)} words</div>

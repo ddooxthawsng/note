@@ -18,6 +18,7 @@ export interface NoteDoc {
   createdAt: Timestamp | null
   updatedAt: Timestamp | null
   deletedAt: Timestamp | null
+  order?: number | null
 }
 
 /** App-side note (id attached, timestamps normalized to millis). */
@@ -26,6 +27,7 @@ export interface Note extends Omit<NoteDoc, 'createdAt' | 'updatedAt' | 'deleted
   createdAt: number | null
   updatedAt: number | null
   deletedAt: number | null
+  order?: number | null
 }
 
 export type NewNoteInput = Partial<

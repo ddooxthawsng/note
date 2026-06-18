@@ -45,6 +45,7 @@ function fromSnapshot(snap: QueryDocumentSnapshot<DocumentData>): Note {
     createdAt: toMillis(d.createdAt),
     updatedAt: toMillis(d.updatedAt),
     deletedAt: toMillis(d.deletedAt),
+    order: d.order ?? null,
   }
 }
 
@@ -91,6 +92,7 @@ export async function createNote(userId: string, input: NewNoteInput = {}) {
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     deletedAt: null,
+    order: Date.now(),
   }
   const ref = await addDoc(collection(database, COLLECTION), payload)
   return ref.id
@@ -108,6 +110,14 @@ export async function updateNote(noteId: string, patch: Partial<NoteDoc>) {
   const data: Record<string, unknown> = { ...patch, updatedAt: serverTimestamp() }
   if (typeof patch.content === 'string') data.wordCount = countWords(patch.content)
   await updateDoc(doc(database, COLLECTION, noteId), data)
+}
+
+export async function swapNotesOrder(noteId1: string, noteId2: string, order1: number, order2: number) {
+  const database = requireDb()
+  await Promise.all([
+    updateDoc(doc(database, COLLECTION, noteId1), { order: order2, updatedAt: serverTimestamp() }),
+    updateDoc(doc(database, COLLECTION, noteId2), { order: order1, updatedAt: serverTimestamp() }),
+  ])
 }
 
 /** Soft delete: move to trash (recoverable). */

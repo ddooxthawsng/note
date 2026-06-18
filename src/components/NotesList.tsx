@@ -63,7 +63,7 @@ export default function NotesList({
   }
 
   return (
-    <div className="flex flex-col gap-6 min-h-full">
+    <div className="flex flex-col gap-6 flex-1 min-h-full">
       {/* Pinned Section */}
       {(pinnedNotes.length > 0 || isDraggingNote) && (
         <div
@@ -124,7 +124,7 @@ export default function NotesList({
             ))}
           </div>
         ) : pinnedNotes.length > 0 ? (
-          <div className="flex flex-1 items-center justify-center text-xs font-medium text-ink-muted/80 border border-dashed border-hairline dark:border-gray-800 rounded-xl min-h-[150px] w-full">
+          <div className="flex-1 flex items-center justify-center text-xs font-medium text-ink-muted/80 border border-dashed border-hairline dark:border-gray-800 rounded-xl min-h-[100px]">
             Drag here to unpin notes
           </div>
         ) : (

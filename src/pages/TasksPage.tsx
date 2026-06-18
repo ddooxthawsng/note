@@ -5,6 +5,7 @@ import toast from 'react-hot-toast'
 import { useAuth } from '@/hooks/useAuth'
 import { useTaskStore, selectFilteredTasks, type TaskFilter } from '@/store/taskStore'
 import { createTask, toggleTaskCompletion, deleteTask } from '@/services/taskService'
+import { scheduleTaskNotification, cancelTaskNotification } from '@/utils/notifications'
 
 export default function TasksPage() {
   const { user } = useAuth()
@@ -26,10 +27,13 @@ export default function TasksPage() {
 
     setAdding(true)
     try {
-      await createTask(userIdString(), {
+      const taskId = await createTask(userIdString(), {
         title: title.trim(),
         dueDate: dueDate || null,
       })
+      if (dueDate) {
+        await scheduleTaskNotification(taskId, title.trim(), dueDate)
+      }
       toast.success('Task created!')
       setTitle('')
       setDueDate('')
@@ -47,6 +51,14 @@ export default function TasksPage() {
   async function handleToggle(taskId: string, currentStatus: boolean) {
     try {
       await toggleTaskCompletion(taskId, !currentStatus)
+      if (!currentStatus) {
+        await cancelTaskNotification(taskId)
+      } else {
+        const task = tasks.find((t) => t.id === taskId)
+        if (task?.dueDate) {
+          await scheduleTaskNotification(taskId, task.title, task.dueDate)
+        }
+      }
     } catch (err) {
       toast.error((err as Error).message)
     }
@@ -55,6 +67,7 @@ export default function TasksPage() {
   async function handleDelete(taskId: string) {
     try {
       await deleteTask(taskId)
+      await cancelTaskNotification(taskId)
       toast.success('Task deleted')
     } catch (err) {
       toast.error((err as Error).message)
@@ -64,20 +77,33 @@ export default function TasksPage() {
   function getDueDateBadge(dateStr: string | null, isCompleted: boolean) {
     if (!dateStr) return null
     const date = parseISO(dateStr)
-    const isOverdue = isPast(date) && !isToday(date) && !isCompleted
+    const isOverdue = isPast(date) && !isCompleted
 
     let label = ''
     try {
-      label = format(date, 'MMM d, yyyy')
+      if (dateStr.includes('T')) {
+        label = format(date, 'MMM d, yyyy h:mm a')
+      } else {
+        label = format(date, 'MMM d, yyyy')
+      }
     } catch {
       label = dateStr
     }
 
     if (isOverdue) {
       return (
-        <span className="inline-flex items-center gap-1 rounded bg-error/10 px-2 py-0.5 text-xs font-medium text-error animate-pulse">
+        <span className="inline-flex items-center gap-1 rounded bg-error text-white px-2 py-0.5 text-xs font-semibold animate-pulse shadow-sm">
           <Calendar size={12} />
           Overdue: {label}
+        </span>
+      )
+    }
+
+    if (isToday(date) && !isCompleted) {
+      return (
+        <span className="inline-flex items-center gap-1 rounded bg-warning/20 text-warning px-2 py-0.5 text-xs font-semibold border border-warning/30">
+          <Calendar size={12} />
+          Today: {label}
         </span>
       )
     }
@@ -128,7 +154,7 @@ export default function TasksPage() {
           />
           <div className="flex items-center gap-2">
             <input
-              type="date"
+              type="datetime-local"
               value={dueDate}
               onChange={(e) => setDueDate(e.target.value)}
               className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm outline-none focus:border-primary dark:border-gray-700 dark:bg-gray-800"
@@ -194,7 +220,7 @@ export default function TasksPage() {
                     className={`font-medium transition-all duration-200 ${
                       task.isCompleted
                         ? 'text-gray-400 line-through dark:text-gray-500'
-                        : 'text-gray-800 dark:text-gray-200'
+                        : 'text-gray-800 dark:text-gray-200 font-semibold'
                     }`}
                   >
                     {task.title}

@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { Note } from '@/types/note'
 import { subscribeToNotes } from '@/services/noteService'
 
-type SortKey = 'updatedAt' | 'createdAt' | 'title'
+type SortKey = 'updatedAt' | 'createdAt' | 'title' | 'custom'
 
 interface NoteState {
   notes: Note[]
@@ -22,7 +22,7 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   loading: true,
   error: null,
   search: '',
-  sortBy: 'updatedAt',
+  sortBy: 'custom',
   unsub: null,
   setSearch: (search) => set({ search }),
   setSortBy: (sortBy) => set({ sortBy }),
@@ -56,6 +56,11 @@ export function selectVisibleNotes(state: NoteState): Note[] {
   }
   const sorted = [...list].sort((a, b) => {
     if (state.sortBy === 'title') return a.title.localeCompare(b.title)
+    if (state.sortBy === 'custom') {
+      const valA = a.order ?? a.updatedAt ?? a.createdAt ?? 0
+      const valB = b.order ?? b.updatedAt ?? b.createdAt ?? 0
+      return valB - valA
+    }
     const valA = a[state.sortBy] ?? (state.sortBy === 'updatedAt' || state.sortBy === 'createdAt' ? Date.now() : 0)
     const valB = b[state.sortBy] ?? (state.sortBy === 'updatedAt' || state.sortBy === 'createdAt' ? Date.now() : 0)
     return valB - valA

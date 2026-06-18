@@ -107,7 +107,7 @@ export default function Sidebar() {
             end={end}
             className={({ isActive }) =>
               cn(
-                'flex items-center gap-3 rounded-md px-3 py-2 text-sm text-ink-body transition hover:bg-canvas-card dark:text-gray-350 dark:hover:bg-dark-elevated',
+                'flex items-center gap-3 rounded-md px-3 py-2 text-sm text-ink-body transition hover:bg-canvas-card dark:text-gray-300 dark:hover:bg-dark-elevated',
                 isActive && 'bg-primary/10 font-semibold text-primary dark:bg-primary/20 dark:text-primary',
               )
             }
@@ -155,7 +155,7 @@ export default function Sidebar() {
               }}
               className={({ isActive }) =>
                 cn(
-                  'group flex items-center justify-between rounded-md px-3 py-1.5 text-sm text-ink-body transition hover:bg-canvas-card dark:text-gray-350 dark:hover:bg-dark-elevated',
+                  'group flex items-center justify-between rounded-md px-3 py-1.5 text-sm text-ink-body transition hover:bg-canvas-card dark:text-gray-300 dark:hover:bg-dark-elevated',
                   isActive && 'bg-primary/10 font-semibold text-primary dark:bg-primary/20 dark:text-primary',
                   dragOverFolderId === f.id && 'border border-dashed border-primary bg-primary/5 animate-pulse',
                 )
