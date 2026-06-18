@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">SuperNote</string>
+    <string name="title_activity_main">SuperNote</string>
+    <string name="package_name">com.supernote.app</string>
+    <string name="custom_url_scheme">com.supernote.app</string>
+</resources>
