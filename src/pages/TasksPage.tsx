@@ -1,11 +1,14 @@
 import { useState } from 'react'
-import { Calendar, Trash2, CheckCircle2, Circle, ListTodo, Plus, Loader2 } from 'lucide-react'
+import { Calendar, Trash2, CheckCircle2, Circle, ListTodo, Plus, Loader2, Mic, MicOff, Sparkles, Wand2 } from 'lucide-react'
 import { isPast, isToday, parseISO, format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/hooks/useAuth'
 import { useTaskStore, selectFilteredTasks, type TaskFilter } from '@/store/taskStore'
 import { createTask, toggleTaskCompletion, deleteTask } from '@/services/taskService'
 import { scheduleTaskNotification, cancelTaskNotification } from '@/utils/notifications'
+import { useSpeechToText } from '@/hooks/useSpeechToText'
+import { askGeminiToParseTasks } from '@/utils/ai'
+import { cn } from '@/utils/cn'
 
 export default function TasksPage() {
   const { user } = useAuth()
@@ -17,6 +20,29 @@ export default function TasksPage() {
   const [title, setTitle] = useState('')
   const [dueDate, setDueDate] = useState('')
   const [adding, setAdding] = useState(false)
+
+  // AI Task Builder States
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [aiGenerating, setAiGenerating] = useState(false)
+  const [showAiBuilder, setShowAiBuilder] = useState(false)
+
+  // Speech to Text for standard task
+  const {
+    isListening,
+    toggleListening,
+    isSupported: speechSupported,
+  } = useSpeechToText((transcript) => {
+    setTitle((prev) => (prev ? prev + ' ' + transcript : transcript))
+  })
+
+  // Speech to Text for AI Builder prompt
+  const {
+    isListening: isAiListening,
+    toggleListening: toggleAiListening,
+    isSupported: aiSpeechSupported,
+  } = useSpeechToText((transcript) => {
+    setAiPrompt((prev) => (prev ? prev + ' ' + transcript : transcript))
+  })
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
@@ -41,6 +67,38 @@ export default function TasksPage() {
       toast.error((err as Error).message)
     } finally {
       setAdding(false)
+    }
+  }
+
+  async function handleAiGenerate() {
+    if (!user || !aiPrompt.trim()) return
+    setAiGenerating(true)
+    try {
+      const parsedTasks = await askGeminiToParseTasks(aiPrompt.trim())
+      if (parsedTasks.length === 0) {
+        toast.error('AI could not identify any tasks. Try rephrasing.')
+        return
+      }
+
+      let createdCount = 0
+      for (const t of parsedTasks) {
+        const taskId = await createTask(userIdString(), {
+          title: t.title,
+          dueDate: t.dueDate,
+        })
+        if (t.dueDate) {
+          await scheduleTaskNotification(taskId, t.title, t.dueDate)
+        }
+        createdCount++
+      }
+
+      toast.success(`Successfully created ${createdCount} tasks using AI!`)
+      setAiPrompt('')
+      setShowAiBuilder(false)
+    } catch (err) {
+      toast.error((err as Error).message)
+    } finally {
+      setAiGenerating(false)
     }
   }
 
@@ -142,16 +200,92 @@ export default function TasksPage() {
         </div>
       </div>
 
+      {/* AI Task Builder Toggle */}
+      <div className="mb-4 flex justify-between items-center">
+        <button
+          type="button"
+          onClick={() => setShowAiBuilder(!showAiBuilder)}
+          className="flex items-center gap-1.5 text-sm font-semibold text-primary hover:text-primary-hover transition-colors"
+        >
+          <Sparkles size={16} />
+          {showAiBuilder ? 'Hide AI Task Builder' : 'Try AI Task Builder (Natural Language)'}
+        </button>
+      </div>
+
+      {/* AI Task Builder Accordion */}
+      {showAiBuilder && (
+        <div className="mb-6 rounded-xl border border-dashed border-primary/40 bg-primary/5 p-4 shadow-sm animate-slide-down">
+          <h3 className="mb-2 flex items-center gap-1.5 text-sm font-bold text-primary">
+            <Sparkles size={15} /> AI Task Builder
+          </h3>
+          <p className="mb-3 text-xs text-ink-muted">Type or speak a prompt (e.g. "I need to design logo today at 3pm, write code tomorrow, and review code next Monday at 10:00"). AI will parse and create these tasks with correct times automatically.</p>
+          <div className="flex flex-col gap-3">
+            <div className="relative">
+              <textarea
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                placeholder={isAiListening ? "Listening..." : "Tell AI what tasks you want to create..."}
+                rows={3}
+                className="w-full rounded-lg border border-gray-200 bg-canvas px-4 py-2 pr-10 outline-none focus:border-primary dark:border-gray-800 dark:bg-dark text-sm"
+              />
+              {aiSpeechSupported && (
+                <button
+                  type="button"
+                  onClick={toggleAiListening}
+                  className={cn(
+                    "absolute right-3 top-3 rounded-full p-1.5 transition-colors",
+                    isAiListening
+                      ? "bg-error/10 text-error animate-pulse"
+                      : "text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
+                  )}
+                  title="Talk to text"
+                >
+                  {isAiListening ? <MicOff size={16} /> : <Mic size={16} />}
+                </button>
+              )}
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={handleAiGenerate}
+                disabled={aiGenerating || !aiPrompt.trim()}
+                className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover active:scale-95 disabled:opacity-50"
+              >
+                {aiGenerating ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
+                Generate Tasks with AI
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Task Creation Form */}
       <form onSubmit={handleCreate} className="mb-6 rounded-xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-800 dark:bg-gray-900">
         <div className="flex flex-col gap-3 sm:flex-row">
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="What needs to be done?"
-            className="flex-1 rounded-lg border border-gray-200 bg-gray-50 px-4 py-2 outline-none focus:border-primary dark:border-gray-700 dark:bg-gray-800"
-          />
+          <div className="relative flex-1">
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder={isListening ? "Listening..." : "What needs to be done?"}
+              className="w-full rounded-lg border border-gray-200 bg-gray-50 pl-4 pr-10 py-2 outline-none focus:border-primary dark:border-gray-700 dark:bg-gray-800"
+            />
+            {speechSupported && (
+              <button
+                type="button"
+                onClick={toggleListening}
+                className={cn(
+                  "absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1.5 transition-colors",
+                  isListening
+                    ? "bg-error/10 text-error animate-pulse"
+                    : "text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
+                )}
+                title="Talk to text"
+              >
+                {isListening ? <MicOff size={16} /> : <Mic size={16} />}
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <input
               type="datetime-local"

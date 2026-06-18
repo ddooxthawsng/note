@@ -10,6 +10,8 @@ import FavoritesPage from '@/pages/FavoritesPage'
 import TrashPage from '@/pages/TrashPage'
 import SettingsPage from '@/pages/SettingsPage'
 import TasksPage from '@/pages/TasksPage'
+import UserManagementPage from '@/pages/UserManagementPage'
+import ShareNotePage from '@/pages/ShareNotePage'
 
 /** Redirect already-authenticated users away from auth pages. */
 function PublicOnly({ children }: { children: React.ReactNode }) {
@@ -20,6 +22,7 @@ function PublicOnly({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   useAuthInit()
+  const { user } = useAuth()
 
   return (
     <Routes>
@@ -29,6 +32,7 @@ export default function App() {
         path="/forgot-password"
         element={<PublicOnly><ForgotPasswordPage /></PublicOnly>}
       />
+      <Route path="/share/:noteId" element={<ShareNotePage />} />
 
       <Route
         element={
@@ -43,6 +47,10 @@ export default function App() {
         <Route path="/tasks" element={<TasksPage />} />
         <Route path="/trash" element={<TrashPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route
+          path="/users"
+          element={user?.role === 'admin' ? <UserManagementPage /> : <Navigate to="/" replace />}
+        />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />

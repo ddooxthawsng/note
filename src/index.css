@@ -118,3 +118,97 @@ h1, h2, h3, h4, h5, h6 {
 .animate-slide-down {
   animation: slideDown 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* Voice recording wave animations */
+@keyframes voiceBar1 {
+  0%, 100% { height: 4px; }
+  50% { height: 12px; }
+}
+@keyframes voiceBar2 {
+  0%, 100% { height: 6px; }
+  50% { height: 16px; }
+}
+@keyframes voiceBar3 {
+  0%, 100% { height: 5px; }
+  50% { height: 14px; }
+}
+@keyframes voiceBar4 {
+  0%, 100% { height: 3px; }
+  50% { height: 10px; }
+}
+
+@keyframes bounceSoft {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+.animate-voice-bar-1 {
+  animation: voiceBar1 0.8s ease-in-out infinite;
+}
+.animate-voice-bar-2 {
+  animation: voiceBar2 0.6s ease-in-out infinite 0.15s;
+}
+.animate-voice-bar-3 {
+  animation: voiceBar3 0.7s ease-in-out infinite 0.05s;
+}
+.animate-voice-bar-4 {
+  animation: voiceBar4 0.9s ease-in-out infinite 0.2s;
+}
+
+.animate-bounce-soft {
+  animation: bounceSoft 3s ease-in-out infinite;
+}
+
+/* Custom Highlights/Marks style matching theme */
+mark {
+  background-color: rgba(204, 120, 92, 0.15);
+  color: #cc785c;
+  border-radius: 4px;
+  padding: 0 4px;
+}
+mark.red {
+  background-color: rgba(198, 69, 69, 0.15);
+  color: #c64545;
+}
+mark.amber {
+  background-color: rgba(212, 160, 23, 0.15);
+  color: #d4a017;
+}
+mark.teal {
+  background-color: rgba(93, 184, 166, 0.15);
+  color: #5db8a6;
+}
+mark.blue {
+  background-color: rgba(26, 115, 232, 0.15);
+  color: #1a73e8;
+}
+mark.purple {
+  background-color: rgba(168, 0, 215, 0.15);
+  color: #a800d7;
+}
+
+/* Dark mode overrides for marks */
+.dark mark {
+  background-color: rgba(204, 120, 92, 0.25);
+  color: #ff9e7d;
+}
+.dark mark.red {
+  background-color: rgba(198, 69, 69, 0.25);
+  color: #ff8888;
+}
+.dark mark.amber {
+  background-color: rgba(212, 160, 23, 0.25);
+  color: #ffd666;
+}
+.dark mark.teal {
+  background-color: rgba(93, 184, 166, 0.25);
+  color: #81c995;
+}
+.dark mark.blue {
+  background-color: rgba(26, 115, 232, 0.25);
+  color: #8ab4f8;
+}
+.dark mark.purple {
+  background-color: rgba(215, 174, 251, 0.25);
+  color: #d7aefb;
+}

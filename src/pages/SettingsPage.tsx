@@ -12,6 +12,7 @@ export default function SettingsPage() {
   const { theme, toggleTheme } = useUiStore()
   const [name, setName] = useState(user?.displayName ?? '')
   const [saving, setSaving] = useState(false)
+  const [apiKey, setApiKey] = useState(localStorage.getItem('gemini_api_key') ?? '')
 
   async function handleSave() {
     setSaving(true)
@@ -24,6 +25,11 @@ export default function SettingsPage() {
     } finally {
       setSaving(false)
     }
+  }
+
+  function handleSaveApiKey() {
+    localStorage.setItem('gemini_api_key', apiKey.trim())
+    toast.success('Gemini API Key updated!')
   }
 
   return (
@@ -52,6 +58,34 @@ export default function SettingsPage() {
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
+        </div>
+      </section>
+
+      <section className="mb-6 rounded-xl border border-hairline bg-canvas-card p-5 dark:border-gray-800 dark:bg-dark-elevated">
+        <h2 className="mb-4 font-serif text-[19px] font-medium text-ink dark:text-gray-100">AI Assistant</h2>
+        <p className="mb-3 text-xs text-ink-muted">Enter your Google Gemini API Key to enable AI features (formatting, summarization, bulk task parsing).</p>
+        <div className="flex flex-wrap gap-2">
+          <input
+            type="password"
+            placeholder="AIzaSy..."
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            className="flex-1 min-w-[200px] rounded-md border border-hairline bg-canvas px-3 py-2 outline-none focus:border-primary dark:border-gray-800 dark:bg-dark text-ink dark:text-gray-200"
+          />
+          <button
+            onClick={handleSaveApiKey}
+            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-white transition hover:bg-primary-hover active:scale-95 shadow-sm"
+          >
+            Save Key
+          </button>
+          <a
+            href="https://aistudio.google.com/app/apikey"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center justify-center rounded-md border border-hairline bg-canvas px-4 py-2 text-sm font-medium text-ink-body transition hover:bg-canvas-soft dark:border-gray-800 dark:bg-dark dark:text-gray-300 dark:hover:bg-dark-elevated"
+          >
+            Get API Key
+          </a>
         </div>
       </section>
 

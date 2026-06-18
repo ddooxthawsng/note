@@ -3,6 +3,8 @@ export interface AppUser {
   email: string | null
   displayName: string | null
   photoURL: string | null
+  role?: 'admin' | 'user'
+  status?: 'pending' | 'approved' | 'rejected'
 }
 
 export interface UserProfile {

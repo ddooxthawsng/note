@@ -12,6 +12,14 @@ function preview(html: string): string {
   return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
+const cardColors: Record<string, string> = {
+  red: 'bg-[#fce8e6] border-[#fad2cf] text-[#c5221f] dark:bg-[#3c2422] dark:border-[#5f2e2a] dark:text-[#f28b82]',
+  amber: 'bg-[#fef3d6] border-[#feebb7] text-[#b06000] dark:bg-[#3d2f1f] dark:border-[#624a2f] dark:text-[#fdd663]',
+  teal: 'bg-[#e6f4ea] border-[#ceead6] text-[#137333] dark:bg-[#223328] dark:border-[#2c4e38] dark:text-[#81c995]',
+  blue: 'bg-[#e8f0fe] border-[#d2e3fc] text-[#1a73e8] dark:bg-[#202d3d] dark:border-[#293d56] dark:text-[#8ab4f8]',
+  purple: 'bg-[#f3e8fd] border-[#ebd4fc] text-[#a800d7] dark:bg-[#30203d] dark:border-[#422d56] dark:text-[#d7aefb]',
+}
+
 export default function NoteCard({ note }: { note: Note }) {
   const setEditingNoteId = useUiStore((s) => s.setEditingNoteId)
   const setContextMenu = useUiStore((s) => s.setContextMenu)
@@ -81,7 +89,10 @@ export default function NoteCard({ note }: { note: Note }) {
         }
       }}
       className={cn(
-        "group flex cursor-pointer flex-col rounded-xl border border-hairline bg-canvas-card p-4 transition duration-200 hover:border-primary/60 hover:shadow-sm hover:scale-[1.01] active:scale-[0.99] dark:border-gray-800 dark:bg-dark-elevated dark:hover:border-primary/60 animate-fade-in-up select-none",
+        "group flex cursor-pointer flex-col rounded-xl border p-4 transition duration-200 hover:shadow-sm hover:scale-[1.01] active:scale-[0.99] animate-fade-in-up select-none",
+        note.color
+          ? cardColors[note.color] || "border-hairline bg-canvas-card dark:border-gray-800 dark:bg-dark-elevated"
+          : "border-hairline bg-canvas-card dark:border-gray-800 dark:bg-dark-elevated hover:border-primary/60 dark:hover:border-primary/60",
         isDragOver && "border-dashed border-primary bg-primary/5 scale-[1.02]"
       )}
     >

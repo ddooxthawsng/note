@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { X, Trash2, Check, Loader2, Save, FolderOpen } from 'lucide-react'
+import { X, Trash2, Check, Loader2, Save, FolderOpen, Share2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import TiptapEditor from '@/components/Editor/TiptapEditor'
 import { getNote, updateNote, softDeleteNote, countWords } from '@/services/noteService'
@@ -22,6 +22,8 @@ export default function EditorModal() {
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
   const [folderId, setFolderId] = useState<string | null>(null)
+  const [color, setColor] = useState<string | null>(null)
+  const [isShared, setIsShared] = useState(false)
   const [loadingNote, setLoadingNote] = useState(true)
   const [saveState, setSaveState] = useState<SaveState>('idle')
 
@@ -51,6 +53,8 @@ export default function EditorModal() {
         setTitle(loaded.title)
         setContent(loaded.content)
         setFolderId(loaded.folderId ?? null)
+        setColor(loaded.color ?? null)
+        setIsShared(loaded.isShared ?? false)
         dirty.current = false
         setSaveState('idle')
       } catch (err) {
@@ -74,7 +78,7 @@ export default function EditorModal() {
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(async () => {
       try {
-        await updateNote(editingNoteId!, { title: title || 'Untitled Note', content, folderId })
+        await updateNote(editingNoteId!, { title: title || 'Untitled Note', content, folderId, color, isShared })
         setSaveState('saved')
         dirty.current = false
       } catch (e) {
@@ -86,7 +90,7 @@ export default function EditorModal() {
       if (timer.current) clearTimeout(timer.current)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, content, folderId])
+  }, [title, content, folderId, color, isShared])
 
   function markDirty() {
     dirty.current = true
@@ -98,7 +102,7 @@ export default function EditorModal() {
     if (timer.current) clearTimeout(timer.current)
     setSaveState('saving')
     try {
-      await updateNote(editingNoteId, { title: title || 'Untitled Note', content, folderId })
+      await updateNote(editingNoteId, { title: title || 'Untitled Note', content, folderId, color, isShared })
       setSaveState('saved')
       dirty.current = false
       toast.success('Saved!')
@@ -113,13 +117,31 @@ export default function EditorModal() {
       // Save immediately on close if dirty
       if (timer.current) clearTimeout(timer.current)
       try {
-        await updateNote(editingNoteId, { title: title || 'Untitled Note', content, folderId })
+        await updateNote(editingNoteId, { title: title || 'Untitled Note', content, folderId, color, isShared })
         toast.success('Autosaved before closing!')
       } catch (e) {
         toast.error('Failed to autosave: ' + (e as Error).message)
       }
     }
     setEditingNoteId(null)
+  }
+
+  async function handleToggleShare() {
+    if (!editingNoteId) return
+    const nextShared = !isShared
+    try {
+      await updateNote(editingNoteId, { isShared: nextShared })
+      setIsShared(nextShared)
+      if (nextShared) {
+        const shareUrl = `${window.location.origin}/share/${editingNoteId}`
+        await navigator.clipboard.writeText(shareUrl)
+        toast.success('Note shared! Link copied to clipboard.')
+      } else {
+        toast.success('Public access revoked.')
+      }
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
   }
 
   async function handleDelete() {
@@ -144,7 +166,17 @@ export default function EditorModal() {
       />
 
       {/* Modal Card */}
-      <div className="relative z-10 flex h-[85vh] w-full max-w-3xl flex-col rounded-2xl border border-hairline bg-canvas shadow-2xl transition-all animate-scale-in dark:border-gray-800 dark:bg-dark">
+      <div
+        className={cn(
+          "relative z-10 flex h-[85vh] w-full max-w-3xl flex-col rounded-2xl border transition-all animate-scale-in shadow-2xl",
+          color === 'red' ? 'bg-[#fdf2f0] border-[#fad2cf] dark:bg-[#291615] dark:border-[#5f2e2a]' :
+          color === 'amber' ? 'bg-[#fefaf0] border-[#feebb7] dark:bg-[#2a2015] dark:border-[#624a2f]' :
+          color === 'teal' ? 'bg-[#f0faf2] border-[#ceead6] dark:bg-[#15291a] dark:border-[#2c4e38]' :
+          color === 'blue' ? 'bg-[#f0f4fa] border-[#d2e3fc] dark:bg-[#151f29] dark:border-[#293d56]' :
+          color === 'purple' ? 'bg-[#faf0ff] border-[#ebd4fc] dark:bg-[#211529] dark:border-[#422d56]' :
+          'bg-canvas border-hairline dark:bg-dark dark:border-gray-800'
+        )}
+      >
         
         {/* Modal Header */}
         <div className="flex items-center justify-between border-b border-hairline px-6 py-4 dark:border-gray-800">
@@ -200,6 +232,20 @@ export default function EditorModal() {
               {saveState === 'saved' && !dirty.current ? 'Saved' : 'Save'}
             </button>
 
+            {/* Share Button */}
+            <button
+              onClick={handleToggleShare}
+              title={isShared ? "Copy link or stop sharing" : "Share note"}
+              className={cn(
+                "rounded-md p-2 transition-colors animate-fade-in",
+                isShared
+                  ? "text-success bg-success/15 hover:bg-success/20"
+                  : "text-ink-muted hover:bg-canvas-card dark:hover:bg-dark-elevated"
+              )}
+            >
+              <Share2 size={18} />
+            </button>
+
             {/* Delete Button */}
             <button
               onClick={handleDelete}
@@ -229,7 +275,44 @@ export default function EditorModal() {
                 className="mb-1 w-full bg-transparent font-serif text-3xl font-normal text-ink dark:text-gray-100 outline-none placeholder:text-gray-300 dark:placeholder:text-gray-700"
               />
 
-              <div className="mb-4 text-xs text-ink-muted font-medium">{countWords(content)} words</div>
+              <div className="mb-4 flex items-center justify-between border-b border-hairline/45 pb-2 dark:border-gray-800">
+                <div className="text-xs text-ink-muted font-medium">{countWords(content)} words</div>
+                
+                {/* Color Selector circles */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] text-ink-muted font-medium">Màu:</span>
+                  <button
+                    onClick={() => { markDirty(); setColor(null); }}
+                    className={cn(
+                      "h-4 w-4 rounded-full border border-hairline transition hover:scale-110",
+                      color === null ? "ring-2 ring-primary ring-offset-2 dark:ring-offset-dark" : ""
+                    )}
+                    style={{ backgroundColor: '#efe9de' }}
+                    title="Mặc định"
+                  />
+                  {(['red', 'amber', 'teal', 'blue', 'purple'] as const).map((colorKey) => {
+                    const bgColors = {
+                      red: '#fad2cf',
+                      amber: '#feebb7',
+                      teal: '#ceead6',
+                      blue: '#d2e3fc',
+                      purple: '#ebd4fc',
+                    }
+                    return (
+                      <button
+                        key={colorKey}
+                        onClick={() => { markDirty(); setColor(colorKey); }}
+                        className={cn(
+                          "h-4 w-4 rounded-full border border-hairline transition hover:scale-110",
+                          color === colorKey ? "ring-2 ring-primary ring-offset-2 dark:ring-offset-dark" : ""
+                        )}
+                        style={{ backgroundColor: bgColors[colorKey] }}
+                        title={colorKey}
+                      />
+                    )
+                  })}
+                </div>
+              </div>
 
               <div className="flex-1">
                 <TiptapEditor

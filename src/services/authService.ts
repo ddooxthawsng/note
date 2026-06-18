@@ -9,7 +9,8 @@ import {
   onAuthStateChanged,
   type User,
 } from 'firebase/auth'
-import { auth } from '@/lib/firebase'
+import { doc, getDoc, setDoc, collection, getDocs, limit, query } from 'firebase/firestore'
+import { auth, db } from '@/lib/firebase'
 import type { AppUser } from '@/types/user'
 
 function requireAuth() {
@@ -67,4 +68,30 @@ export function subscribeToAuth(cb: (user: AppUser | null) => void) {
     return () => {}
   }
   return onAuthStateChanged(auth, (u) => cb(mapUser(u)))
+}
+
+export async function ensureUserProfile(uid: string, email: string | null, displayName: string | null) {
+  if (!db) return
+  const userRef = doc(db, 'users', uid)
+  const userSnap = await getDoc(userRef)
+
+  if (!userSnap.exists()) {
+    // Check if this is the first user in the collection
+    const usersColl = collection(db, 'users')
+    const q = query(usersColl, limit(1))
+    const snap = await getDocs(q)
+    const isEmpty = snap.empty
+
+    const role = isEmpty ? 'admin' : 'user'
+    const status = isEmpty ? 'approved' : 'pending'
+
+    await setDoc(userRef, {
+      uid,
+      email,
+      displayName: displayName || email?.split('@')[0] || 'User',
+      role,
+      status,
+      createdAt: Date.now(),
+    })
+  }
 }

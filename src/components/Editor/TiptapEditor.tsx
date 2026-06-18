@@ -20,10 +20,18 @@ import {
   Scissors,
   Copy,
   Clipboard,
+  Mic,
+  MicOff,
+  Sparkles,
+  Wand2,
+  Loader2,
+  History,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import toast from 'react-hot-toast'
 import { useUiStore } from '@/store/uiStore'
+import { useSpeechToText } from '@/hooks/useSpeechToText'
+import { askGeminiToFormat, askGeminiToSummarize } from '@/utils/ai'
 
 interface Props {
   content: string
@@ -63,6 +71,22 @@ export default function TiptapEditor({ content, onChange, editable = true }: Pro
   const [findText, setFindText] = useState('')
   const [replaceText, setReplaceText] = useState('')
   const [, setSelectionUpdateToken] = useState(0)
+  const [aiLoading, setAiLoading] = useState(false)
+
+  interface HistoryItem {
+    id: string
+    content: string
+    timestamp: number
+  }
+  const [aiHistory, setAiHistory] = useState<HistoryItem[]>([])
+  const [comparisonData, setComparisonData] = useState<{
+    oldText: string
+    newText: string
+    isSelectionOnly: boolean
+    from?: number
+    to?: number
+  } | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   const setContextMenu = useUiStore((s) => s.setContextMenu)
   const [editorMenuCoords, setEditorMenuCoords] = useState<{ x: number; y: number } | null>(null)
@@ -81,6 +105,17 @@ export default function TiptapEditor({ content, onChange, editable = true }: Pro
         class: 'prose max-w-none focus:outline-none',
       },
     },
+  })
+
+  // Speech to Text
+  const {
+    isListening,
+    toggleListening,
+    isSupported: speechSupported,
+  } = useSpeechToText((transcript) => {
+    if (editor) {
+      editor.chain().focus().insertContent(transcript).run()
+    }
   })
 
   // Sync external content changes (e.g. note switch) without clobbering typing.
@@ -116,6 +151,18 @@ export default function TiptapEditor({ content, onChange, editable = true }: Pro
       document.removeEventListener('contextmenu', handleClose)
     }
   }, [editorMenuCoords])
+
+  // Close history dropdown on click away
+  useEffect(() => {
+    if (!historyOpen) return
+    function handleClose() {
+      setHistoryOpen(false)
+    }
+    document.addEventListener('click', handleClose)
+    return () => {
+      document.removeEventListener('click', handleClose)
+    }
+  }, [historyOpen])
 
   if (!editor) return null
 
@@ -289,6 +336,69 @@ export default function TiptapEditor({ content, onChange, editable = true }: Pro
     }
   }
 
+  async function handleAiAssist(action: 'format' | 'summarize') {
+    if (!editor) return
+    setAiLoading(true)
+    setEditorMenuCoords(null)
+    const toastId = toast.loading('AI is processing your request...')
+    try {
+      const { from, to } = editor.state.selection
+      const hasSelection = from !== to
+      const contentToProcess = hasSelection
+        ? editor.state.doc.textBetween(from, to, ' ')
+        : editor.getHTML()
+
+      let result = ''
+      if (action === 'format') {
+        result = await askGeminiToFormat(contentToProcess)
+      } else {
+        result = await askGeminiToSummarize(contentToProcess)
+      }
+
+      setComparisonData({
+        oldText: contentToProcess,
+        newText: result,
+        isSelectionOnly: hasSelection,
+        from: hasSelection ? from : undefined,
+        to: hasSelection ? to : undefined,
+      })
+      toast.success('AI generation complete. Review changes to apply.', { id: toastId })
+    } catch (err) {
+      toast.error((err as Error).message, { id: toastId })
+    } finally {
+      setAiLoading(false)
+    }
+  }
+
+  function handleApplyAiEditor(newText: string, isSelectionOnly: boolean, from?: number, to?: number) {
+    if (!editor) return
+    const currentFullContent = editor.getHTML()
+    const newItem: HistoryItem = {
+      id: Math.random().toString(36).substring(2) + Date.now().toString(),
+      content: currentFullContent,
+      timestamp: Date.now(),
+    }
+    setAiHistory((prev) => [newItem, ...prev].slice(0, 10))
+
+    if (isSelectionOnly && typeof from === 'number' && typeof to === 'number') {
+      editor.chain().focus().insertContentAt({ from, to }, newText).run()
+    } else {
+      editor.commands.setContent(newText, true)
+    }
+    onChange(editor.getHTML())
+    setComparisonData(null)
+    toast.success('Applied AI changes!')
+  }
+
+  function handleCompareHistory(historyContent: string) {
+    if (!editor) return
+    setComparisonData({
+      oldText: editor.getHTML(),
+      newText: historyContent,
+      isSelectionOnly: false,
+    })
+  }
+
   function handleKeyDown(e: React.KeyboardEvent) {
     if (!editor) return
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
@@ -387,6 +497,93 @@ export default function TiptapEditor({ content, onChange, editable = true }: Pro
             >
               <Search size={18} />
             </ToolbarButton>
+
+            {/* AI and Speech features */}
+            <span className="mx-1 h-5 w-px bg-hairline dark:bg-gray-850" />
+            {speechSupported && (
+              <ToolbarButton
+                label="Talk to Text"
+                active={isListening}
+                onClick={toggleListening}
+              >
+                {isListening ? <MicOff size={18} className="text-error animate-pulse" /> : <Mic size={18} />}
+              </ToolbarButton>
+            )}
+            <ToolbarButton
+              label="AI Assist (Clean & Format)"
+              active={aiLoading}
+              onClick={() => handleAiAssist('format')}
+            >
+              {aiLoading ? <Loader2 size={18} className="animate-spin text-primary" /> : <Sparkles size={18} className="text-primary" />}
+            </ToolbarButton>
+            <ToolbarButton
+              label="AI Summarize"
+              active={aiLoading}
+              onClick={() => handleAiAssist('summarize')}
+            >
+              <Wand2 size={18} className="text-accent-teal" />
+            </ToolbarButton>
+
+            {/* AI History Dropdown */}
+            {aiHistory.length > 0 && (
+              <div className="relative" onClick={(e) => e.stopPropagation()}>
+                <ToolbarButton
+                  label="AI History"
+                  active={historyOpen}
+                  onClick={() => setHistoryOpen(!historyOpen)}
+                >
+                  <History size={18} className="text-primary" />
+                </ToolbarButton>
+                
+                {historyOpen && (
+                  <div className="absolute right-0 top-full mt-1.5 z-30 w-72 rounded-xl border border-hairline bg-canvas/95 p-2 shadow-2xl backdrop-blur-md dark:border-gray-800 dark:bg-dark-elevated/95 select-none text-ink">
+                    <div className="flex items-center justify-between mb-1.5 px-1">
+                      <span className="text-[10px] font-bold text-ink-muted uppercase tracking-wider">AI History ({aiHistory.length}/10)</span>
+                      <button
+                        onClick={() => { setAiHistory([]); setHistoryOpen(false); }}
+                        className="text-[10px] text-error hover:underline font-semibold"
+                      >
+                        Clear All
+                      </button>
+                    </div>
+                    <div className="max-h-48 overflow-y-auto flex flex-col gap-1 pr-0.5">
+                      {aiHistory.map((item) => (
+                        <div
+                          key={item.id}
+                          className="flex items-center justify-between gap-2 rounded border border-hairline bg-canvas-soft/60 p-1.5 text-xs dark:border-gray-855 dark:bg-dark/40"
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[9px] text-ink-muted font-semibold">
+                              {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                            </div>
+                            <div className="truncate text-ink-body dark:text-gray-300 font-mono text-[10px]">
+                              {item.content.replace(/<[^>]*>/g, '')}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => {
+                                handleCompareHistory(item.content)
+                                setHistoryOpen(false)
+                              }}
+                              className="rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-semibold text-primary hover:bg-primary/20"
+                            >
+                              Compare
+                            </button>
+                            <button
+                              onClick={() => setAiHistory((prev) => prev.filter((h) => h.id !== item.id))}
+                              className="rounded p-0.5 text-ink-muted hover:bg-error/15 hover:text-error transition"
+                            >
+                              <X size={10} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Find & Replace Panel */}
@@ -477,7 +674,7 @@ export default function TiptapEditor({ content, onChange, editable = true }: Pro
         <div
           style={{ top: editorMenuCoords.y, left: editorMenuCoords.x }}
           onClick={(e) => e.stopPropagation()}
-          className="fixed z-50 w-52 animate-fade-in rounded-xl border border-hairline bg-canvas/95 p-1.5 shadow-xl backdrop-blur-md dark:border-gray-850 dark:bg-dark-elevated/95 select-none text-ink"
+          className="fixed z-50 w-52 animate-fade-in rounded-xl border border-hairline bg-canvas/95 p-1.5 shadow-xl backdrop-blur-md dark:border-gray-855 dark:bg-dark-elevated/95 select-none text-ink"
         >
           <div className="flex flex-col gap-0.5">
             <button
@@ -584,6 +781,104 @@ export default function TiptapEditor({ content, onChange, editable = true }: Pro
               </div>
               <span className="text-xs text-ink-muted">Ctrl+F</span>
             </button>
+
+            <div className="my-1 border-t border-hairline dark:border-gray-800" />
+
+            <button
+              onClick={() => handleAiAssist('format')}
+              disabled={aiLoading}
+              className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-sm text-ink-body hover:bg-canvas-card dark:text-gray-300 dark:hover:bg-dark"
+            >
+              <div className="flex items-center gap-2">
+                <Sparkles size={15} className="text-primary animate-pulse" />
+                <span>AI Clean & Format</span>
+              </div>
+            </button>
+            <button
+              onClick={() => handleAiAssist('summarize')}
+              disabled={aiLoading}
+              className="flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-left text-sm text-ink-body hover:bg-canvas-card dark:text-gray-300 dark:hover:bg-dark"
+            >
+              <div className="flex items-center gap-2">
+                <Wand2 size={15} className="text-accent-teal" />
+                <span>AI Summarize</span>
+              </div>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Comparison Modal Overlay */}
+      {comparisonData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            onClick={() => setComparisonData(null)}
+            className="absolute inset-0 bg-black/55 backdrop-blur-[1px] transition-opacity animate-fade-in"
+          />
+
+          <div className="relative z-10 flex h-[80vh] w-full max-w-4xl flex-col rounded-2xl border border-hairline bg-canvas p-6 shadow-2xl backdrop-blur-md dark:border-gray-800 dark:bg-dark-elevated/95 animate-scale-in">
+            <div className="mb-4 flex items-center justify-between border-b border-hairline pb-3 dark:border-gray-800">
+              <h3 className="font-serif text-lg font-medium text-ink dark:text-gray-100 flex items-center gap-1.5">
+                <Sparkles size={20} className="text-primary" /> Compare AI Changes
+              </h3>
+              <button
+                onClick={() => setComparisonData(null)}
+                className="rounded-full p-1 text-ink-muted hover:bg-canvas-card dark:hover:bg-dark"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="flex flex-1 gap-4 overflow-hidden min-h-0 mb-5">
+              {/* Before Column */}
+              <div className="flex flex-1 flex-col rounded-xl border border-hairline bg-canvas-soft p-4 dark:border-gray-855 dark:bg-dark/40 overflow-hidden">
+                <span className="text-[10px] font-bold text-ink-muted uppercase tracking-wider mb-2 select-none">Before (Original)</span>
+                <div className="flex-1 overflow-y-auto pr-1">
+                  {comparisonData.isSelectionOnly ? (
+                    <div className="text-sm text-ink-body dark:text-gray-300 font-mono whitespace-pre-wrap break-all">
+                      {comparisonData.oldText}
+                    </div>
+                  ) : (
+                    <div
+                      className="prose dark:prose-invert max-w-none text-xs text-ink-body dark:text-gray-300 pr-1 break-words"
+                      dangerouslySetInnerHTML={{ __html: comparisonData.oldText || '<p class="italic text-ink-muted/50">Empty document</p>' }}
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* After Column */}
+              <div className="flex flex-1 flex-col rounded-xl border border-primary/20 bg-primary/5 p-4 dark:border-primary/10 dark:bg-primary/5 overflow-hidden">
+                <span className="text-[10px] font-bold text-primary uppercase tracking-wider mb-2 select-none font-semibold">After (AI Proposal)</span>
+                <div className="flex-1 overflow-y-auto pr-1">
+                  {comparisonData.isSelectionOnly ? (
+                    <div className="text-sm text-ink-body dark:text-gray-300 font-mono whitespace-pre-wrap break-all font-semibold">
+                      {comparisonData.newText}
+                    </div>
+                  ) : (
+                    <div
+                      className="prose dark:prose-invert max-w-none text-xs text-ink-body dark:text-gray-300 pr-1 break-words font-semibold"
+                      dangerouslySetInnerHTML={{ __html: comparisonData.newText }}
+                    />
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 border-t border-hairline pt-4 dark:border-gray-800">
+              <button
+                onClick={() => setComparisonData(null)}
+                className="rounded-lg bg-canvas-card px-4 py-2 text-sm font-semibold text-ink-body hover:bg-canvas-card-hover dark:bg-dark dark:text-gray-300 transition"
+              >
+                Discard Suggestion
+              </button>
+              <button
+                onClick={() => handleApplyAiEditor(comparisonData.newText, comparisonData.isSelectionOnly, comparisonData.from, comparisonData.to)}
+                className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover active:scale-95 shadow-md transition"
+              >
+                Apply Changes
+              </button>
+            </div>
           </div>
         </div>
       )}

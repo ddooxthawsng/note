@@ -3,9 +3,10 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Notes — owner-only access in Phase 1 (sharing comes in Phase 2).
+    // Notes rules (support public sharing)
     match /notes/{noteId} {
-      allow read, delete: if isOwner(resource.data.userId);
+      allow read: if isOwner(resource.data.userId) || (resource.data.isShared == true);
+      allow delete: if isOwner(resource.data.userId);
       allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
       allow update: if isOwner(resource.data.userId)
                     && request.resource.data.userId == resource.data.userId;
@@ -27,9 +28,17 @@ service cloud.firestore {
                     && request.resource.data.userId == resource.data.userId;
     }
 
-    // User profile docs (reserved for future use).
+    // User profile docs with roles & status.
     match /users/{userId} {
-      allow read, write: if isSignedIn() && request.auth.uid == userId;
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && (
+        (request.auth.uid == userId && 
+         (!('role' in resource.data) || request.resource.data.role == resource.data.role) && 
+         (!('status' in resource.data) || request.resource.data.status == resource.data.status)) || 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'
+      );
+      allow delete: if isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
     function isSignedIn() {

@@ -8,6 +8,7 @@ import { useTaskStore } from '@/store/taskStore'
 import { useFolderStore } from '@/store/folderStore'
 import EditorModal from './Editor/EditorModal'
 import ContextMenu from './ContextMenu'
+import QuickCapture from './QuickCapture'
 
 export default function AppLayout() {
   const { user } = useAuth()
@@ -42,6 +43,7 @@ export default function AppLayout() {
       </div>
       <EditorModal />
       <ContextMenu />
+      <QuickCapture />
     </div>
   )
 }

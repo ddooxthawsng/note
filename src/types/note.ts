@@ -15,6 +15,7 @@ export interface NoteDoc {
   wordCount: number
   color: string | null
   isDeleted: boolean
+  isShared?: boolean
   createdAt: Timestamp | null
   updatedAt: Timestamp | null
   deletedAt: Timestamp | null
@@ -28,6 +29,7 @@ export interface Note extends Omit<NoteDoc, 'createdAt' | 'updatedAt' | 'deleted
   updatedAt: number | null
   deletedAt: number | null
   order?: number | null
+  isShared?: boolean
 }
 
 export type NewNoteInput = Partial<

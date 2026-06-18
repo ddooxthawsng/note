@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom'
-import { FileText, Star, ListTodo, Trash2, Settings, Plus, Folder } from 'lucide-react'
+import { FileText, Star, ListTodo, Trash2, Settings, Plus, Folder, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { cn } from '@/utils/cn'
 import { useUiStore } from '@/store/uiStore'
@@ -116,6 +116,20 @@ export default function Sidebar() {
             <span className="truncate">{label}</span>
           </NavLink>
         ))}
+        {user?.role === 'admin' && (
+          <NavLink
+            to="/users"
+            className={({ isActive }) =>
+              cn(
+                'flex items-center gap-3 rounded-md px-3 py-2 text-sm text-ink-body transition hover:bg-canvas-card dark:text-gray-300 dark:hover:bg-dark-elevated',
+                isActive && 'bg-primary/10 font-semibold text-primary dark:bg-primary/20 dark:text-primary',
+              )
+            }
+          >
+            <Users size={18} className="transition-transform group-hover:scale-110 shrink-0 text-primary" />
+            <span className="truncate font-semibold text-primary">Manage Users</span>
+          </NavLink>
+        )}
       </nav>
 
       {/* Folders Section */}
