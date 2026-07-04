@@ -1,11 +1,11 @@
-# Firebase Setup — SuperNote
+# Firebase Setup — Tool
 
-`firebase.md` was empty. This is the wiring guide. Do this once before auth/notes work.
+Firebase wiring guide for Tool.
 
 ## 1. Create project
 
 1. Go to <https://console.firebase.google.com> → **Add project**.
-2. Name it (e.g. `supernote`), disable Analytics if you want (optional).
+2. Name it (e.g. `tool`), disable Analytics if you want (optional).
 
 ## 2. Register a Web app
 
@@ -23,6 +23,7 @@ VITE_FIREBASE_PROJECT_ID=<projectId>
 VITE_FIREBASE_STORAGE_BUCKET=<storageBucket>
 VITE_FIREBASE_MESSAGING_SENDER_ID=<messagingSenderId>
 VITE_FIREBASE_APP_ID=<appId>
+VITE_FIREBASE_API_BASE_URL=https://thangdo.web.app
 ```
 
 Restart `npm run dev` after editing (Vite only reads env at startup).
@@ -53,11 +54,11 @@ firebase deploy --only firestore:rules,firestore:indexes
 > filter by `userId` + `isDeleted` and order by `updatedAt`/`deletedAt`.
 > Without them Firestore throws a "needs an index" error with a create link.
 
-## 7. (Later) Hosting
+## 7. Hosting
 
 ```bash
 npm run build
-firebase deploy --only hosting
+firebase deploy --only hosting --project thangdo-note
 ```
 
-`firebase.json` already points hosting at `dist/` with SPA rewrites.
+`firebase.json` deploys the Hosting site `thangdo`, so the public URL is <https://thangdo.web.app>.

@@ -1,62 +1,125 @@
-# SuperNote
+# Tool
 
-Advanced note-taking web app. **Phase 1 MVP**: auth + note CRUD with a rich-text editor, live-synced via Firestore.
-
-Built per [`super_note_prompt.md`](./super_note_prompt.md). Full roadmap (collaboration, search, AI, kanban, calendar) lives there.
+Firebase-backed tool dashboard with Notes and MarkItDown conversion.
 
 ## Stack
 
-| Concern        | Choice                                    |
-| -------------- | ----------------------------------------- |
-| Framework      | React 18 + TypeScript + Vite              |
-| Styling        | Tailwind CSS (dark mode via `class`)      |
-| State          | Zustand                                   |
-| Routing        | React Router 6                            |
-| Backend        | Firebase Auth + Firestore                 |
-| Editor         | Tiptap (ProseMirror) — collab-ready       |
-| Icons / toasts | lucide-react / react-hot-toast            |
+- React 18 + TypeScript + Vite
+- Tailwind CSS
+- React Router 6
+- Zustand
+- Firebase Auth + Firestore
+- Tiptap editor
+- lucide-react + react-hot-toast
 
-> Editor note: the spec listed Draft.js, but it's archived by Meta. Swapped for **Tiptap** — actively maintained and has first-class Yjs support for the Phase 2 real-time collaboration goal.
-
-## Quick start
+## Run
 
 ```bash
 npm install
-# configure Firebase — see firebase.md, fill .env.local
 npm run dev
+npm run build
 ```
 
-App boots without Firebase keys (you'll see a warning banner on the auth screens), but sign-in and notes require a configured project. See **[firebase.md](./firebase.md)**.
+Firebase config lives in `.env.local`; see `firebase.md`.
+Public domain: <https://thangdo.web.app>.
 
-## Scripts
+## App Shape
 
-- `npm run dev` — Vite dev server (port 5173)
-- `npm run build` — type-check + production build to `dist/`
-- `npm run preview` — preview the production build
+Tool has a global top menu. Tool-specific navigation stays inside each tool.
 
-## What's implemented (Phase 1)
+- `/` - dashboard for tools only
+- `/tools/notes` - Notes tool
+- `/tools/notes/favorites` - favorite notes
+- `/tools/notes/tasks` - tasks inside Notes
+- `/tools/notes/trash` - deleted notes
+- `/tools/notes/folder/:folderId` - notes in one folder
+- `/tools/markitdown` - document-to-Markdown converter
+- `/settings` - profile, theme, Gemini key
+- `/users` - admin user management
+- `/admin/firebase` - admin Firebase counts and MarkItDown quota monitor
+- `/share/:noteId` - public shared note
 
-- **Auth** — email/password + Google sign-in, signup with password-strength meter, password reset, route guards, profile name edit.
-- **Notes** — create / read / edit / soft-delete, auto-save (1.5s debounce), live Firestore sync, word count, pin & favorite.
-- **Organization** — dashboard grid, client-side search (title/content/tags), sort by modified/created/title, Favorites view, Trash with restore + permanent delete.
-- **UX** — responsive layout, light/dark theme (persisted), toasts, loading skeletons.
+Old routes redirect:
 
-## Project structure
+- `/favorites` -> `/tools/notes/favorites`
+- `/tasks` -> `/tools/notes/tasks`
+- `/trash` -> `/tools/notes/trash`
+- `/folder/:folderId` -> `/tools/notes/folder/:folderId`
 
-```
+## Source Layout
+
+```text
 src/
-├── components/      AppLayout, Navbar, Sidebar, NotesList, NoteCard,
-│   └── Editor/      TiptapEditor, ProtectedRoute, AuthShell
-├── pages/           Login, Signup, ForgotPassword, Dashboard,
-│                    Editor, Favorites, Trash, Settings
-├── services/        authService, noteService (Firestore)
-├── store/           authStore, noteStore, uiStore (Zustand)
-├── hooks/           useAuth
-├── lib/             firebase.ts
-├── types/           note.ts, user.ts
-└── utils/           validators (zod), cn
+  app/
+    App.tsx                 Route tree
+    layout/                 Top navbar + app shell
+    pages/                  Dashboard, Settings, User Management
+  features/
+    auth/                   Login, signup, password reset
+  shared/
+    components/             Cross-app components
+    hooks/                  Shared hooks
+    lib/                    Firebase bootstrap
+    services/               Auth/profile services
+    store/                  Shared Zustand stores
+    types/                  Shared types
+    utils/                  AI, dialogs, validators, helpers
+  tools/
+    markitdown/
+      MarkitdownToolPage.tsx
+      markitdownApi.ts
+    notes/
+      NotesToolLayout.tsx   Notes-owned layout
+      components/           Notes sidebar, editor, cards, quick capture
+      pages/                Notes, Favorites, Trash, Share
+      services/             noteService, folderService
+      store/                noteStore, folderStore
+      tasks/                Tasks owned by Notes
 ```
 
-## Next (Phase 2+)
+## Firebase Data
 
-Folders & tags CRUD · sharing & permissions · real-time collaborative editing (Tiptap + Yjs) · version history · Algolia search · export/import. Tracked in `super_note_prompt.md`.
+- `users/{uid}`: profile, role, approval status, `geminiApiKey`
+- `conversionQuota/{uid_period}`: monthly MarkItDown usage
+- `notes/{noteId}`: note HTML, folder, color, share flag, soft-delete state
+- `folders/{folderId}`: note folders
+- `tasks/{taskId}`: tasks owned by Notes
+
+Firestore rules protect note/task/folder ownership. User docs are readable by owner or admin only so stored Gemini keys are not visible to other users.
+Admin users can read aggregate app collections for the Firebase monitor.
+
+## Notes Tool
+
+Notes owns:
+
+- note CRUD, folders, favorites, trash
+- tasks
+- rich editor
+- quick capture
+- AI clean/format and summarize
+- note-to-task conversion
+- public share view
+
+Editor supports persisted AI colors via `<mark class="red|amber|teal|blue|purple">`, checklist blocks, headings, lists, quote, code, voice input, find/replace, and AI history.
+
+Shared checklist notes can be ticked in the public share page. Tick state is stored in that viewer's browser localStorage, not Firestore.
+
+## MarkItDown Tool
+
+MarkItDown accepts any file type, keeps the 20MB size limit, and lets the backend decide whether conversion is supported. Firebase mode calls `/api/convert` on <https://thangdo.web.app>; Local Docker mode calls `http://localhost:8000/convert`.
+
+## AI Key
+
+Settings -> AI Assistant saves Gemini key to both:
+
+- Firestore: `users/{uid}.geminiApiKey`
+- localStorage: `gemini_api_key`
+
+On login, the key syncs from Firestore to localStorage. On logout, localStorage key is removed.
+
+## Important Commands
+
+```bash
+npm run build
+firebase deploy --only hosting --project thangdo-note
+```

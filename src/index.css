@@ -187,6 +187,48 @@ mark.purple {
   color: #a800d7;
 }
 
+[data-highlight-swatch="red"] {
+  background-color: #c64545;
+}
+[data-highlight-swatch="amber"] {
+  background-color: #d4a017;
+}
+[data-highlight-swatch="teal"] {
+  background-color: #5db8a6;
+}
+[data-highlight-swatch="blue"] {
+  background-color: #1a73e8;
+}
+[data-highlight-swatch="purple"] {
+  background-color: #a800d7;
+}
+
+.check-item {
+  margin: 0.35rem 0;
+}
+
+.check-item-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  line-height: 1.6;
+}
+
+.check-item input[type='checkbox'] {
+  margin-top: 0.35rem;
+  accent-color: #cc785c;
+}
+
+.ProseMirror .check-item input[type='checkbox'] {
+  pointer-events: none;
+}
+
+.check-item[data-checked='true'] span,
+.shared-note-content .check-item.is-checked span {
+  color: #8e8b82;
+  text-decoration: line-through;
+}
+
 /* Dark mode overrides for marks */
 .dark mark {
   background-color: rgba(204, 120, 92, 0.25);
