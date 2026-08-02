@@ -4,6 +4,8 @@ import type { Timestamp } from 'firebase/firestore'
 export interface FolderDoc {
   userId: string
   name: string
+  parentId: string | null
+  order?: number | null
   createdAt: Timestamp | null
 }
 
@@ -11,4 +13,5 @@ export interface FolderDoc {
 export interface Folder extends Omit<FolderDoc, 'createdAt'> {
   id: string
   createdAt: number | null
+  order: number | null
 }

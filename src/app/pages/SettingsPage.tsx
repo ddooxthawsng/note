@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Moon, Sun } from 'lucide-react'
+import { Mic, MicOff, Moon, Sun } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/shared/hooks/useAuth'
 import { useUiStore } from '@/shared/store/uiStore'
@@ -9,7 +9,7 @@ import { updateDisplayName, updateGeminiApiKey } from '@/shared/services/authSer
 export default function SettingsPage() {
   const { user } = useAuth()
   const setUser = useAuthStore((s) => s.setUser)
-  const { theme, toggleTheme } = useUiStore()
+  const { theme, toggleTheme, showMicControls, toggleMicControls } = useUiStore()
   const [name, setName] = useState(user?.displayName ?? '')
   const [saving, setSaving] = useState(false)
   const [savingApiKey, setSavingApiKey] = useState(false)
@@ -110,7 +110,7 @@ export default function SettingsPage() {
         </div>
       </section>
 
-      <section className="rounded-xl border border-hairline bg-canvas-card p-5 dark:border-gray-800 dark:bg-dark-elevated">
+      <section className="mb-6 rounded-xl border border-hairline bg-canvas-card p-5 dark:border-gray-800 dark:bg-dark-elevated">
         <h2 className="mb-4 font-serif text-[19px] font-medium text-ink dark:text-gray-100">Appearance</h2>
         <button
           onClick={toggleTheme}
@@ -119,6 +119,28 @@ export default function SettingsPage() {
           {theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
           {theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
         </button>
+      </section>
+
+      <section className="rounded-xl border border-hairline bg-canvas-card p-5 dark:border-gray-800 dark:bg-dark-elevated">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 className="font-serif text-[19px] font-medium text-ink dark:text-gray-100">Voice input</h2>
+            <p className="mt-1 text-sm text-ink-muted">
+              Show microphone controls in Notes and Tasks. The APK uses on-device Moonshine; the web uses browser speech recognition.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={showMicControls}
+            onClick={toggleMicControls}
+            className={`relative mt-1 h-7 w-12 shrink-0 rounded-full transition-colors ${showMicControls ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-700'}`}
+          >
+            <span className={`absolute top-1 flex h-5 w-5 items-center justify-center rounded-full bg-white text-gray-500 shadow-sm transition-transform ${showMicControls ? 'translate-x-6' : 'translate-x-1'}`}>
+              {showMicControls ? <Mic size={11} /> : <MicOff size={11} />}
+            </span>
+          </button>
+        </div>
       </section>
     </div>
   )

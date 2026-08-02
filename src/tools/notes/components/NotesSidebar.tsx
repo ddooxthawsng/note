@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import { FileText, Folder, ListTodo, PanelLeftClose, PanelLeftOpen, Plus, Star, Trash2 } from 'lucide-react'
+import { ArrowDownUp, ChevronDown, ChevronRight, FileText, Folder, ListTodo, PanelLeftClose, PanelLeftOpen, Plus, Star, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/shared/hooks/useAuth'
 import { useUiStore } from '@/shared/store/uiStore'
 import { cn } from '@/shared/utils/cn'
 import { confirmDialog, promptDialog } from '@/shared/utils/dialog'
-import { createFolder, deleteFolder } from '@/tools/notes/services/folderService'
+import { createFolder, deleteFolder, updateFolderPosition } from '@/tools/notes/services/folderService'
 import { createNote, updateNote } from '@/tools/notes/services/noteService'
 import { useFolderStore } from '@/tools/notes/store/folderStore'
 import { useNoteStore } from '@/tools/notes/store/noteStore'
@@ -32,6 +32,9 @@ export default function NotesSidebar({
   const addFolder = useFolderStore((s) => s.addFolder)
   const notes = useNoteStore((s) => s.notes)
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null)
+  const [folderReorderEnabled, setFolderReorderEnabled] = useState(false)
+  const [folderDropTargetId, setFolderDropTargetId] = useState<string | null>(null)
+  const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(new Set())
 
   async function handleNewNote() {
     if (!user) return
@@ -44,13 +47,20 @@ export default function NotesSidebar({
     }
   }
 
-  async function handleNewFolder() {
+  async function handleNewFolder(parentId: string | null = null) {
     if (!user) return
     const name = await promptDialog('New Folder', 'Enter new folder name:')
     if (!name || !name.trim()) return
     try {
-      const folder = await createFolder(user.uid, name.trim())
+      const folder = await createFolder(user.uid, name.trim(), parentId)
       addFolder(folder)
+      if (parentId) {
+        setCollapsedFolderIds((ids) => {
+          const next = new Set(ids)
+          next.delete(parentId)
+          return next
+        })
+      }
       toast.success('Folder created!')
     } catch (e) {
       toast.error((e as Error).message)
@@ -87,8 +97,157 @@ export default function NotesSidebar({
     }
   }
 
+  function folderOrder(folder: (typeof folders)[number]) {
+    return folder.order ?? folder.createdAt ?? 0
+  }
+
+  function isDescendant(folderId: string, ancestorId: string) {
+    let current = folders.find((folder) => folder.id === folderId)
+    while (current?.parentId) {
+      if (current.parentId === ancestorId) return true
+      current = folders.find((folder) => folder.id === current?.parentId)
+    }
+    return false
+  }
+
+  async function handleFolderDrop(e: React.DragEvent, targetId: string) {
+    e.preventDefault()
+    e.stopPropagation()
+    setFolderDropTargetId(null)
+    if (!folderReorderEnabled) return
+
+    const draggedId = e.dataTransfer.getData('application/x-folder-id')
+    const dragged = folders.find((folder) => folder.id === draggedId)
+    const target = folders.find((folder) => folder.id === targetId)
+    if (!dragged || !target || dragged.id === target.id || isDescendant(target.id, dragged.id)) return
+
+    const rect = e.currentTarget.getBoundingClientRect()
+    const position = e.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+    const siblings = folders
+      .filter((folder) => folder.parentId === target.parentId && folder.id !== dragged.id)
+      .sort((a, b) => folderOrder(a) - folderOrder(b))
+    const targetIndex = siblings.findIndex((folder) => folder.id === target.id)
+    if (targetIndex < 0) return
+
+    const insertAt = targetIndex + (position === 'after' ? 1 : 0)
+    const previous = siblings[insertAt - 1]
+    const next = siblings[insertAt]
+    const order = previous && next
+      ? (folderOrder(previous) + folderOrder(next)) / 2
+      : previous
+        ? folderOrder(previous) + 1
+        : next
+          ? folderOrder(next) - 1
+          : Date.now()
+
+    try {
+      await updateFolderPosition(dragged.id, target.parentId ?? null, order)
+      toast.success('Folders reordered!')
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }
+
   function getFolderNoteCount(folderId: string) {
     return notes.filter((n) => n.folderId === folderId && !n.isDeleted).length
+  }
+
+  const existingFolderIds = new Set(folders.map((folder) => folder.id))
+  const rootFolders = folders.filter((folder) => !folder.parentId || !existingFolderIds.has(folder.parentId))
+
+  function renderFolder(folder: (typeof folders)[number], depth = 0): React.ReactNode {
+    const children = folders.filter((item) => item.parentId === folder.id)
+    const collapsed = collapsedFolderIds.has(folder.id)
+    return (
+      <div key={folder.id}>
+        <div
+          className={cn(
+            'group flex items-center rounded-md text-sm text-ink-body transition hover:bg-canvas-card dark:text-gray-300 dark:hover:bg-dark-elevated',
+            dragOverFolderId === folder.id && 'border border-dashed border-primary bg-primary/5 animate-pulse',
+            folderDropTargetId === folder.id && 'border-2 border-dashed border-primary bg-primary/5',
+            folderReorderEnabled && 'cursor-grab',
+          )}
+          style={{ paddingLeft: `${depth * 14}px` }}
+          draggable={folderReorderEnabled}
+          onDragStart={(e) => {
+            if (!folderReorderEnabled) return
+            e.dataTransfer.setData('application/x-folder-id', folder.id)
+            e.dataTransfer.effectAllowed = 'move'
+          }}
+          onDragEnd={() => setFolderDropTargetId(null)}
+          onDragOver={(e) => {
+            const types = Array.from(e.dataTransfer.types)
+            if (folderReorderEnabled && types.includes('application/x-folder-id')) {
+              e.preventDefault()
+              e.stopPropagation()
+              setFolderDropTargetId(folder.id)
+            } else if (!types.includes('application/x-folder-id')) {
+              e.preventDefault()
+              setDragOverFolderId(folder.id)
+            }
+          }}
+          onDragLeave={() => {
+            setDragOverFolderId(null)
+            setFolderDropTargetId(null)
+          }}
+          onDrop={(e) => {
+            if (e.dataTransfer.types.includes('application/x-folder-id')) {
+              void handleFolderDrop(e, folder.id)
+            } else {
+              void handleNoteDrop(e, folder.id, folder.name)
+            }
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            setContextMenu({ x: e.clientX, y: e.clientY, type: 'folder', targetId: folder.id, data: folder })
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setCollapsedFolderIds((ids) => {
+              const next = new Set(ids)
+              next.has(folder.id) ? next.delete(folder.id) : next.add(folder.id)
+              return next
+            })}
+            aria-label={collapsed ? 'Expand folder' : 'Collapse folder'}
+            className={cn('shrink-0 rounded p-1 text-ink-muted', children.length === 0 && 'invisible')}
+          >
+            {collapsed ? <ChevronRight size={14} /> : <ChevronDown size={14} />}
+          </button>
+          <NavLink
+            to={`/tools/notes/folder/${folder.id}`}
+            className={({ isActive }) => cn(
+              'flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-1.5',
+              isActive && 'bg-primary/10 font-semibold text-primary dark:bg-primary/20 dark:text-primary',
+            )}
+          >
+            <Folder size={16} className={cn('shrink-0 text-ink-muted', dragOverFolderId === folder.id && 'text-primary')} />
+            <span className="truncate">{folder.name}</span>
+          </NavLink>
+          <span className="rounded-full bg-canvas-soft px-1.5 py-0.5 text-xs font-medium text-ink-muted dark:bg-dark-elevated">
+            {getFolderNoteCount(folder.id)}
+          </span>
+          <button
+            type="button"
+            onClick={() => handleNewFolder(folder.id)}
+            aria-label={`Add subfolder to ${folder.name}`}
+            title="Add subfolder"
+            className="rounded p-1 text-ink-muted opacity-60 transition hover:text-primary hover:opacity-100"
+          >
+            <Plus size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => handleDeleteFolder(e, folder.id, folder.name)}
+            aria-label="Delete folder"
+            className="rounded p-1 text-ink-muted opacity-0 transition hover:text-error group-hover:opacity-100"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+        {!collapsed && children.map((child) => renderFolder(child, depth + 1))}
+      </div>
+    )
   }
 
   return (
@@ -143,63 +302,33 @@ export default function NotesSidebar({
       {!collapsed && <div className="mt-6 flex flex-1 flex-col overflow-hidden">
         <div className="mb-2 flex items-center justify-between px-3 text-xs font-semibold uppercase tracking-wider text-ink-muted">
           <span>Folders</span>
-          <button
-            onClick={handleNewFolder}
-            aria-label="Add folder"
-            className="rounded p-0.5 hover:bg-canvas-card hover:text-ink dark:hover:bg-dark-elevated dark:hover:text-gray-100"
-          >
-            <Plus size={14} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setFolderReorderEnabled((enabled) => !enabled)}
+              aria-label={folderReorderEnabled ? 'Finish reordering folders' : 'Reorder folders'}
+              aria-pressed={folderReorderEnabled}
+              title={folderReorderEnabled ? 'Finish reordering folders' : 'Reorder folders'}
+              className={cn(
+                'rounded p-0.5 transition hover:bg-canvas-card hover:text-ink dark:hover:bg-dark-elevated dark:hover:text-gray-100',
+                folderReorderEnabled && 'bg-primary/15 text-primary',
+              )}
+            >
+              <ArrowDownUp size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleNewFolder()}
+              aria-label="Add folder"
+              className="rounded p-0.5 hover:bg-canvas-card hover:text-ink dark:hover:bg-dark-elevated dark:hover:text-gray-100"
+            >
+              <Plus size={14} />
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-col gap-0.5 overflow-y-auto pr-1">
-          {folders.map((f) => (
-            <NavLink
-              key={f.id}
-              to={`/tools/notes/folder/${f.id}`}
-              onDragOver={(e) => {
-                e.preventDefault()
-                setDragOverFolderId(f.id)
-              }}
-              onDragLeave={() => setDragOverFolderId(null)}
-              onDrop={(e) => handleNoteDrop(e, f.id, f.name)}
-              onContextMenu={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                setContextMenu({
-                  x: e.clientX,
-                  y: e.clientY,
-                  type: 'folder',
-                  targetId: f.id,
-                  data: f,
-                })
-              }}
-              className={({ isActive }) =>
-                cn(
-                  'group flex items-center justify-between rounded-md px-3 py-1.5 text-sm text-ink-body transition hover:bg-canvas-card dark:text-gray-300 dark:hover:bg-dark-elevated',
-                  isActive && 'bg-primary/10 font-semibold text-primary dark:bg-primary/20 dark:text-primary',
-                  dragOverFolderId === f.id && 'border border-dashed border-primary bg-primary/5 animate-pulse',
-                )
-              }
-            >
-              <div className="flex items-center gap-2.5 truncate">
-                <Folder size={16} className={cn('shrink-0 text-ink-muted', dragOverFolderId === f.id && 'text-primary')} />
-                <span className="truncate">{f.name}</span>
-              </div>
-              <div className="flex shrink-0 items-center gap-1.5">
-                <span className="rounded-full bg-canvas-soft px-1.5 py-0.5 text-xs font-medium text-ink-muted group-hover:bg-white dark:bg-dark-elevated dark:group-hover:bg-dark">
-                  {getFolderNoteCount(f.id)}
-                </span>
-                <button
-                  onClick={(e) => handleDeleteFolder(e, f.id, f.name)}
-                  aria-label="Delete folder"
-                  className="rounded p-0.5 text-ink-muted opacity-0 transition-all hover:bg-canvas-card hover:text-error group-hover:opacity-100 dark:hover:bg-dark-elevated"
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            </NavLink>
-          ))}
+          {rootFolders.map((folder) => renderFolder(folder))}
           {folders.length === 0 && (
             <span className="px-3 py-2 text-xs italic text-ink-muted">No folders created</span>
           )}

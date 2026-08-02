@@ -1,57 +1,123 @@
-import { useMemo, useState, type DragEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import toast from 'react-hot-toast'
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronRight,
   Copy,
   Download,
+  ExternalLink,
   FileArchive,
   FileJson,
+  Folder,
+  FolderOpen,
+  FolderPlus,
   HardDrive,
   KeyRound,
   Loader2,
   MessageSquare,
+  RefreshCw,
   Save,
   Search,
   Send,
+  Settings,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react'
 import { cn } from '@/shared/utils/cn'
+import { useAuth } from '@/shared/hooks/useAuth'
 import {
-  createManifest,
-  downloadTelegramPart,
+  discoverTelegramChat,
   formatBytes,
-  maxTelegramPartBytes,
+  TelegramBrowserDownloadError,
+  telegramChatKey,
+  telegramTokenKey,
   parseManifest,
   partCount,
-  planTelegramParts,
   uploadTelegramPart,
   type TelegramManifest,
-  type TelegramPart,
+  type TelegramDiscoveryResult,
 } from '@/tools/telegram/telegramApi'
+import { downloadTelegramFile, openRemoteDownload, saveBlob, uploadTelegramFile } from '@/tools/telegram/telegramDriveService'
+import {
+  createTelegramFolder,
+  deleteTelegramFolder,
+  deleteTelegramFile,
+  moveTelegramFile,
+  renameTelegramFolder,
+  saveTelegramFile,
+  subscribeToTelegramFolders,
+  subscribeToTelegramFiles,
+  type TelegramFolderItem,
+  type TelegramLibraryItem,
+} from '@/tools/telegram/telegramLibraryService'
 
-type Mode = 'upload' | 'download'
 type SortKey = 'newest' | 'name' | 'size'
-type LibraryItem = { id: string; manifest: TelegramManifest; savedAt: string }
+type LegacyLibraryItem = { id: string; manifest: TelegramManifest; savedAt: string }
 
-const tokenKey = 'telegram_tool_bot_token'
-const chatKey = 'telegram_tool_chat_id'
 const libraryKey = 'telegram_tool_library_v1'
 
 export default function TelegramToolPage() {
-  const [mode, setMode] = useState<Mode>('upload')
-  const [botToken, setBotToken] = useLocalSetting(tokenKey)
-  const [chatId, setChatId] = useLocalSetting(chatKey)
+  const { user } = useAuth()
+  const [botToken, setBotToken] = useLocalSetting(telegramTokenKey)
+  const [chatId, setChatId] = useLocalSetting(telegramChatKey)
   const [file, setFile] = useState<File | null>(null)
   const [manifestText, setManifestText] = useState('')
   const [progress, setProgress] = useState('')
   const [busy, setBusy] = useState(false)
-  const [library, setLibrary] = useLocalLibrary()
+  const [discovering, setDiscovering] = useState(false)
+  const [discovery, setDiscovery] = useState<TelegramDiscoveryResult | null>(null)
+  const [library, setLibrary] = useState<TelegramLibraryItem[]>([])
+  const [libraryLoading, setLibraryLoading] = useState(true)
+  const [libraryError, setLibraryError] = useState('')
+  const [libraryRevision, setLibraryRevision] = useState(0)
+  const [folders, setFolders] = useState<TelegramFolderItem[]>([])
+  const [selectedFolderId, setSelectedFolderId] = useState('all')
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [draggingFiles, setDraggingFiles] = useState(false)
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<SortKey>('newest')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const uploadParts = file ? partCount(file.size) : 0
+  useEffect(() => {
+    if (!user) {
+      setLibrary([])
+      setLibraryLoading(false)
+      return
+    }
+
+    setLibraryLoading(true)
+    setLibraryError('')
+    const unsubscribe = subscribeToTelegramFiles(
+      user.uid,
+      (items) => {
+        setLibrary(items)
+        setLibraryLoading(false)
+      },
+      (error) => {
+        setLibraryError(error.message)
+        setLibraryLoading(false)
+        toast.error(error.message)
+      },
+    )
+    const legacy = readLocalLibrary()
+    if (legacy.length) {
+      void Promise.all(legacy.map((item) => saveTelegramFile(user.uid, item.manifest)))
+        .then(() => localStorage.removeItem(libraryKey))
+        .catch((error: Error) => toast.error(`Library migration failed: ${error.message}`))
+    }
+    return unsubscribe
+  }, [user, libraryRevision])
+
+  useEffect(() => {
+    if (!user) {
+      setFolders([])
+      return
+    }
+    return subscribeToTelegramFolders(user.uid, setFolders, (error) => toast.error(error.message))
+  }, [user])
+
   const manifest = useMemo(() => {
     if (!manifestText.trim()) return null
     try {
@@ -62,15 +128,20 @@ export default function TelegramToolPage() {
   }, [manifestText])
   const visibleLibrary = useMemo(() => {
     const needle = search.trim().toLowerCase()
+    const folderItems = selectedFolderId === 'all'
+      ? library
+      : library.filter((item) => item.folderId === (selectedFolderId === 'root' ? null : selectedFolderId))
     const filtered = needle
-      ? library.filter((item) => item.manifest.fileName.toLowerCase().includes(needle))
-      : library
+      ? folderItems.filter((item) => item.manifest.fileName.toLowerCase().includes(needle))
+      : folderItems
     return [...filtered].sort((a, b) => {
       if (sortBy === 'name') return a.manifest.fileName.localeCompare(b.manifest.fileName)
       if (sortBy === 'size') return b.manifest.size - a.manifest.size
-      return new Date(b.savedAt).getTime() - new Date(a.savedAt).getTime()
+      const bTime = b.savedAt ?? Date.parse(b.manifest.createdAt)
+      const aTime = a.savedAt ?? Date.parse(a.manifest.createdAt)
+      return bTime - aTime
     })
-  }, [library, search, sortBy])
+  }, [library, search, selectedFolderId, sortBy])
   const storageStats = useMemo(() => ({
     files: library.length,
     parts: library.reduce((sum, item) => sum + item.manifest.parts.length, 0),
@@ -85,34 +156,129 @@ export default function TelegramToolPage() {
     return true
   }
 
-  function ready() {
+  function uploadReady() {
     if (!botReady()) return false
-    if (mode === 'upload' && !chatId.trim()) {
+    if (!chatId.trim()) {
       toast.error('Chat ID required')
       return false
     }
     return true
   }
 
-  function saveManifestToLibrary(nextManifest: TelegramManifest) {
-    const id = manifestId(nextManifest)
-    const nextItem = { id, manifest: nextManifest, savedAt: new Date().toISOString() }
-    const nextLibrary = [nextItem, ...library.filter((item) => item.id !== id)]
-    setLibrary(nextLibrary)
+  function currentFolderId() {
+    return selectedFolderId === 'all' || selectedFolderId === 'root' ? null : selectedFolderId
+  }
+
+  async function saveManifestToLibrary(nextManifest: TelegramManifest, folderId = currentFolderId()) {
+    if (!user) throw new Error('Sign in to sync the Telegram library.')
+    const id = await saveTelegramFile(user.uid, nextManifest, undefined, folderId)
+    setLibrary((current) => [{
+      id,
+      manifest: nextManifest,
+      savedAt: Date.now(),
+      source: { type: 'drive' },
+      folderId,
+    }, ...current.filter((item) => item.id !== id)])
   }
 
   function loadManifest(nextManifest: TelegramManifest) {
     setManifestText(JSON.stringify(nextManifest, null, 2))
-    setMode('download')
   }
 
-  function deleteManifest(id: string) {
-    setLibrary(library.filter((item) => item.id !== id))
+  async function createFolder() {
+    if (!user) return
+    const name = window.prompt('Folder name')
+    if (!name) return
+    try {
+      const parentId = currentFolderId()
+      const next = await createTelegramFolder(user.uid, name, parentId)
+      setFolders((current) => [...current, next].sort((a, b) => a.name.localeCompare(b.name)))
+      setSelectedFolderId(next.id)
+      toast.success('Folder created')
+    } catch (error) {
+      toast.error((error as Error).message)
+    }
   }
 
-  async function handleUpload() {
-    if (!file || busy || !ready()) return
-    if (file.size === 0) {
+  async function renameFolder(folder: TelegramFolderItem) {
+    const name = window.prompt('Rename folder', folder.name)
+    if (!name || name.trim() === folder.name) return
+    try {
+      await renameTelegramFolder(folder.id, name)
+      setFolders((current) => current.map((item) => item.id === folder.id ? { ...item, name: name.trim() } : item))
+    } catch (error) {
+      toast.error((error as Error).message)
+    }
+  }
+
+  async function deleteFolder(folder: TelegramFolderItem) {
+    if (folders.some((item) => item.parentId === folder.id) || library.some((item) => item.folderId === folder.id)) {
+      toast.error('Move or delete this folder contents first.')
+      return
+    }
+    if (!window.confirm(`Delete folder "${folder.name}"?`)) return
+    try {
+      await deleteTelegramFolder(folder.id)
+      setFolders((current) => current.filter((item) => item.id !== folder.id))
+      if (selectedFolderId === folder.id) setSelectedFolderId(folder.parentId ?? 'root')
+      toast.success('Folder deleted')
+    } catch (error) {
+      toast.error((error as Error).message)
+    }
+  }
+
+  async function moveFile(id: string, folderId: string | null) {
+    try {
+      await moveTelegramFile(id, folderId)
+      setLibrary((current) => current.map((item) => item.id === id ? { ...item, folderId } : item))
+      toast.success('File moved')
+    } catch (error) {
+      toast.error((error as Error).message)
+    }
+  }
+
+  async function deleteManifest(id: string) {
+    try {
+      await deleteTelegramFile(id)
+      setLibrary((current) => current.filter((item) => item.id !== id))
+      toast.success('Removed from library')
+    } catch (error) {
+      toast.error((error as Error).message)
+    }
+  }
+
+  async function handleDiscoverChat() {
+    if (!botReady() || discovering) return
+    setDiscovering(true)
+    try {
+      const result = await discoverTelegramChat(botToken)
+      setDiscovery(result)
+      if (result.chat) {
+        setChatId(result.chat.id)
+        toast.success(`Chat ID detected: ${result.chat.id}`)
+      } else if (result.webhookActive) {
+        toast.error('This bot has an active webhook. Enter Chat ID manually or disable the webhook first.')
+      } else {
+        if (result.startUrl) window.open(result.startUrl, '_blank', 'noopener,noreferrer')
+        toast('Send /start to the bot, then click Auto-detect again.')
+      }
+    } catch (error) {
+      toast.error((error as Error).message)
+    } finally {
+      setDiscovering(false)
+    }
+  }
+
+  async function handleUpload(uploadFile = file) {
+    if (!uploadFile || busy) return
+    if (!botToken.trim() || !chatId.trim()) {
+      setFile(uploadFile)
+      setSettingsOpen(true)
+      toast.error('Configure Bot token and Chat ID before uploading.')
+      return
+    }
+    if (!uploadReady()) return
+    if (uploadFile.size === 0) {
       toast.error('Empty file')
       return
     }
@@ -120,36 +286,31 @@ export default function TelegramToolPage() {
     setBusy(true)
     setProgress('Preparing chunks...')
     try {
-      const total = partCount(file.size)
-      const uploaded: TelegramPart[] = []
-      for (const part of planTelegramParts(file.size)) {
-        const chunk = file.slice(part.start, part.end, file.type || 'application/octet-stream')
-        setProgress(`Uploading part ${part.index + 1}/${total}`)
-        const result = await uploadTelegramPart({
-          botToken,
-          chatId,
-          file: chunk,
-          originalName: file.name,
-          partIndex: part.index + 1,
-          totalParts: total,
-        })
-        uploaded.push({ index: part.index, ...result })
-      }
-
-      const nextManifest = createManifest(file, uploaded)
+      const total = partCount(uploadFile.size)
+      const nextManifest = await uploadTelegramFile(
+        botToken,
+        chatId,
+        uploadFile,
+        (current, count) => setProgress(`Uploading part ${current}/${count}`),
+      )
       const json = JSON.stringify(nextManifest, null, 2)
       setManifestText(json)
-      saveManifestToLibrary(nextManifest)
       setProgress('Uploading manifest...')
       await uploadTelegramPart({
         botToken,
         chatId,
         file: new Blob([json], { type: 'application/json' }),
-        originalName: `${file.name}.telegram-manifest.json`,
+        originalName: `${uploadFile.name}.telegram-manifest.json`,
         partIndex: 1,
         totalParts: 1,
       })
+      try {
+        await saveManifestToLibrary(nextManifest)
+      } catch (error) {
+        toast.error(`Uploaded, but library sync failed: ${(error as Error).message}`)
+      }
       setProgress(`Done: ${total} part${total === 1 ? '' : 's'} + manifest`)
+      setFile(null)
       toast.success('Uploaded to Telegram')
     } catch (error) {
       setProgress('')
@@ -169,7 +330,7 @@ export default function TelegramToolPage() {
       return
     }
 
-    saveManifestToLibrary(parsed)
+    void saveManifestToLibrary(parsed).catch((error: Error) => toast.error(error.message))
     await downloadFromManifest(parsed)
   }
 
@@ -177,22 +338,21 @@ export default function TelegramToolPage() {
     if (busy || !botReady()) return
     setBusy(true)
     try {
-      const buffers: ArrayBuffer[] = []
-      const parts = [...parsed.parts].sort((a, b) => a.index - b.index)
-      for (let index = 0; index < parts.length; index += 1) {
-        setProgress(`Downloading part ${index + 1}/${parts.length}`)
-        buffers.push(await downloadTelegramPart(botToken, parts[index].fileId))
-      }
-      const blob = new Blob(buffers, { type: parsed.mimeType || 'application/octet-stream' })
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = parsed.fileName || 'telegram-download.bin'
-      link.click()
-      URL.revokeObjectURL(url)
+      const blob = await downloadTelegramFile(
+        botToken,
+        parsed,
+        (current, total) => setProgress(`Downloading part ${current}/${total}`),
+      )
+      saveBlob(blob, parsed.fileName || 'telegram-download.bin')
       setProgress(`Merged: ${parsed.fileName}`)
       toast.success('Downloaded and merged')
     } catch (error) {
+      if (error instanceof TelegramBrowserDownloadError && parsed.parts.length === 1) {
+        openRemoteDownload(error.url, parsed.fileName || 'telegram-download.bin')
+        setProgress(`Browser download started: ${parsed.fileName}`)
+        toast.success('Download opened in browser')
+        return
+      }
       setProgress('')
       toast.error((error as Error).message)
     } finally {
@@ -208,7 +368,7 @@ export default function TelegramToolPage() {
     link.href = url
     link.download = name
     link.click()
-    URL.revokeObjectURL(url)
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
   }
 
   async function copyManifest() {
@@ -228,25 +388,162 @@ export default function TelegramToolPage() {
     link.href = url
     link.download = `${nextManifest.fileName}.telegram-manifest.json`
     link.click()
-    URL.revokeObjectURL(url)
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
   }
 
+  const selectedFolder = folders.find((item) => item.id === selectedFolderId)
+  const locationName = selectedFolderId === 'all' ? 'All files' : selectedFolder?.name ?? 'My Drive'
+
   return (
-    <div className="w-full flex-1 overflow-y-auto p-4 animate-fade-in-up md:p-6">
-      <div className="mx-auto flex w-full max-w-7xl flex-col gap-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+    <div className="w-full flex-1 overflow-y-auto p-3 animate-fade-in-up md:p-6">
+      <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-ink-muted">Telegram</p>
-            <h1 className="text-3xl font-serif font-normal text-ink dark:text-gray-100">Telegram Drive</h1>
+            <h1 className="text-2xl font-sans font-semibold text-ink dark:text-gray-100">Telegram Drive</h1>
+            <p className="text-sm text-ink-muted">{storageStats.files} files · {formatBytes(storageStats.bytes)} stored in Telegram</p>
           </div>
-          <div className="inline-flex rounded-md border border-hairline bg-canvas-card p-1 dark:border-gray-800 dark:bg-dark-elevated">
-            <ModeButton active={mode === 'upload'} icon={Upload} label="Upload" onClick={() => setMode('upload')} />
-            <ModeButton active={mode === 'download'} icon={Download} label="Download" onClick={() => setMode('download')} />
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => void createFolder()} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-hairline bg-canvas px-3 py-2 text-sm font-semibold text-ink-body hover:border-primary hover:text-primary dark:border-gray-800 dark:bg-dark-soft dark:text-gray-200">
+              <FolderPlus size={17} /> New folder
+            </button>
+            <button type="button" onClick={() => setSettingsOpen(true)} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-hairline bg-canvas px-3 py-2 text-sm font-semibold text-ink-body hover:border-primary hover:text-primary dark:border-gray-800 dark:bg-dark-soft dark:text-gray-200">
+              <Settings size={17} /> Settings
+            </button>
+            <button type="button" disabled={busy} onClick={() => fileInputRef.current?.click()} className="inline-flex min-h-10 items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50">
+              {busy ? <Loader2 size={17} className="animate-spin" /> : <Upload size={17} />} Upload
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="sr-only"
+              onChange={(event) => {
+                const nextFile = event.currentTarget.files?.item(0)
+                if (nextFile) void handleUpload(nextFile)
+                event.currentTarget.value = ''
+              }}
+            />
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
-          <div className="flex flex-col gap-4">
+        <div className="grid min-h-[620px] overflow-hidden rounded-lg border border-hairline bg-canvas shadow-sm dark:border-gray-800 dark:bg-dark-soft md:grid-cols-[230px_minmax(0,1fr)]">
+          <DriveSidebar
+            files={library}
+            folders={folders}
+            onCreate={() => void createFolder()}
+            onDelete={(folder) => void deleteFolder(folder)}
+            onMove={(id, folderId) => void moveFile(id, folderId)}
+            onRename={(folder) => void renameFolder(folder)}
+            onSelect={setSelectedFolderId}
+            selectedId={selectedFolderId}
+          />
+
+          <main
+            onDragEnter={(event) => {
+              if (event.dataTransfer.types.includes('Files')) setDraggingFiles(true)
+            }}
+            onDragOver={(event) => {
+              if (event.dataTransfer.types.includes('Files')) event.preventDefault()
+            }}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDraggingFiles(false)
+            }}
+            onDrop={(event) => {
+              event.preventDefault()
+              setDraggingFiles(false)
+              const dropped = event.dataTransfer.files.item(0)
+              if (dropped) void handleUpload(dropped)
+            }}
+            className="relative min-w-0 p-3 md:p-5"
+          >
+            {draggingFiles && (
+              <div className="absolute inset-3 z-20 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10 backdrop-blur-sm md:inset-5">
+                <div className="text-center text-primary">
+                  <Upload size={34} className="mx-auto mb-2" />
+                  <p className="font-semibold">Drop to upload into {locationName}</p>
+                </div>
+              </div>
+            )}
+
+            <div className="mb-4 flex items-center gap-2 text-sm text-ink-muted">
+              <HardDrive size={16} /> My Drive <ChevronRight size={14} />
+              <span className="font-semibold text-ink dark:text-gray-100">{locationName}</span>
+            </div>
+
+            {file && !busy && (
+              <div className="mb-4 flex flex-col gap-3 rounded-md border border-primary/30 bg-primary/5 p-3 sm:flex-row sm:items-center">
+                <FileArchive size={20} className="shrink-0 text-primary" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-ink dark:text-gray-100">{file.name}</p>
+                  <p className="text-xs text-ink-muted">{formatBytes(file.size)} · waiting for Telegram settings</p>
+                </div>
+                <button type="button" onClick={() => void handleUpload()} className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-semibold text-white"><Send size={15} /> Upload now</button>
+                <button type="button" onClick={() => setFile(null)} className="rounded-md p-2 text-ink-muted hover:text-error"><X size={16} /></button>
+              </div>
+            )}
+
+            {progress && (
+              <p className="mb-4 flex items-center gap-2 rounded-md border border-hairline bg-canvas-card px-3 py-2 text-sm font-medium text-ink-body dark:border-gray-800 dark:bg-dark-elevated dark:text-gray-200">
+                {busy ? <Loader2 size={16} className="animate-spin text-primary" /> : <CheckCircle2 size={16} className="text-success" />}
+                {progress}
+              </p>
+            )}
+
+            <LibraryPanel
+              busy={busy}
+              error={libraryError}
+              folders={folders}
+              items={visibleLibrary}
+              loading={libraryLoading}
+              onCopy={copyManifestObject}
+              onDelete={deleteManifest}
+              onDownload={downloadFromManifest}
+              onExport={downloadManifestObject}
+              onLoad={loadManifest}
+              onMove={(id, folderId) => void moveFile(id, folderId)}
+              onRefresh={() => setLibraryRevision((value) => value + 1)}
+              onSearch={setSearch}
+              onSort={setSortBy}
+              search={search}
+              sortBy={sortBy}
+              stats={storageStats}
+            />
+
+            <details className="mt-4 rounded-md border border-hairline bg-canvas-card dark:border-gray-800 dark:bg-dark-elevated">
+              <summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-ink-body dark:text-gray-200">Advanced manifest tools</summary>
+              <div className="grid gap-4 border-t border-hairline p-4 dark:border-gray-800 lg:grid-cols-2">
+                <div className="flex flex-col gap-3">
+                  <ManifestInput value={manifestText} onChange={setManifestText} manifest={manifest} />
+                  <button type="button" disabled={busy || !manifest} onClick={() => void handleDownload()} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white disabled:opacity-40">
+                    <Download size={17} /> Download and merge
+                  </button>
+                </div>
+                <ManifestPanel
+                  busy={busy}
+                  manifest={manifest}
+                  manifestText={manifestText}
+                  onChange={setManifestText}
+                  onClear={() => setManifestText('')}
+                  onCopy={copyManifest}
+                  onDownload={downloadManifest}
+                  onSave={() => {
+                    if (!manifest) return
+                    void saveManifestToLibrary(manifest)
+                      .then(() => toast.success('Saved to library'))
+                      .catch((error: Error) => toast.error(error.message))
+                  }}
+                />
+              </div>
+            </details>
+          </main>
+        </div>
+      </div>
+
+      {settingsOpen && (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/45 p-0 sm:items-center sm:p-4" onMouseDown={(event) => {
+          if (event.target === event.currentTarget) setSettingsOpen(false)
+        }}>
+          <div className="relative w-full max-w-md rounded-t-xl bg-canvas-card p-4 shadow-2xl dark:bg-dark-elevated sm:rounded-xl">
+            <button type="button" onClick={() => setSettingsOpen(false)} className="absolute right-5 top-5 z-10 rounded-md p-1.5 text-ink-muted hover:bg-canvas hover:text-ink dark:hover:bg-dark" title="Close settings"><X size={17} /></button>
             <SettingsCard
               botToken={botToken}
               chatId={chatId}
@@ -255,73 +552,15 @@ export default function TelegramToolPage() {
               onClear={() => {
                 setBotToken('')
                 setChatId('')
+                setDiscovery(null)
               }}
-              showChat={mode === 'upload'}
-            />
-
-            {mode === 'upload' ? (
-              <UploadCard
-                busy={busy}
-                file={file}
-                onClear={() => setFile(null)}
-                onFile={setFile}
-                parts={uploadParts}
-              />
-            ) : (
-              <ManifestInput value={manifestText} onChange={setManifestText} manifest={manifest} />
-            )}
-
-            <button
-              type="button"
-              disabled={busy || (mode === 'upload' ? !file : !manifest)}
-              onClick={mode === 'upload' ? handleUpload : handleDownload}
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:bg-primary-disabled disabled:text-ink-muted"
-            >
-              {busy ? <Loader2 size={18} className="animate-spin" /> : mode === 'upload' ? <Send size={18} /> : <Download size={18} />}
-              {mode === 'upload' ? 'Upload to Telegram' : 'Download and Merge'}
-            </button>
-
-            {progress && (
-              <p className="flex items-center gap-2 rounded-md border border-hairline bg-canvas px-3 py-2 text-sm font-medium text-ink-body dark:border-gray-800 dark:bg-dark-soft dark:text-gray-200">
-                {busy ? <Loader2 size={16} className="animate-spin text-primary" /> : <CheckCircle2 size={16} className="text-success" />}
-                {progress}
-              </p>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-4">
-            <LibraryPanel
-              busy={busy}
-              items={visibleLibrary}
-              onCopy={copyManifestObject}
-              onDelete={deleteManifest}
-              onDownload={downloadFromManifest}
-              onExport={downloadManifestObject}
-              onLoad={loadManifest}
-              onSearch={setSearch}
-              onSort={setSortBy}
-              search={search}
-              sortBy={sortBy}
-              stats={storageStats}
-            />
-
-            <ManifestPanel
-              busy={busy}
-              manifest={manifest}
-              manifestText={manifestText}
-              onChange={setManifestText}
-              onClear={() => setManifestText('')}
-              onCopy={copyManifest}
-              onDownload={downloadManifest}
-              onSave={() => {
-                if (!manifest) return
-                saveManifestToLibrary(manifest)
-                toast.success('Saved to library')
-              }}
+              discovering={discovering}
+              discovery={discovery}
+              onDiscover={handleDiscoverChat}
             />
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
@@ -336,40 +575,159 @@ function useLocalSetting(key: string) {
   return [value, update] as const
 }
 
-function useLocalLibrary() {
-  const [items, setItems] = useState<LibraryItem[]>(() => {
-    try {
-      const raw = localStorage.getItem(libraryKey)
-      if (!raw) return []
-      return (JSON.parse(raw) as LibraryItem[]).filter((item) => {
-        parseManifest(JSON.stringify(item.manifest))
-        return item.id && item.savedAt
-      })
-    } catch {
-      return []
-    }
-  })
-
-  function update(next: LibraryItem[]) {
-    setItems(next)
-    localStorage.setItem(libraryKey, JSON.stringify(next))
+function readLocalLibrary() {
+  try {
+    const raw = localStorage.getItem(libraryKey)
+    if (!raw) return []
+    return (JSON.parse(raw) as LegacyLibraryItem[]).filter((item) => {
+      parseManifest(JSON.stringify(item.manifest))
+      return item.id && item.savedAt
+    })
+  } catch {
+    return []
   }
-
-  return [items, update] as const
 }
 
-function manifestId(manifest: TelegramManifest) {
-  return `${manifest.fileName}:${manifest.size}:${manifest.createdAt}:${manifest.parts.map((part) => part.fileId).join(',')}`
+function DriveSidebar({
+  files,
+  folders,
+  onCreate,
+  onDelete,
+  onMove,
+  onRename,
+  onSelect,
+  selectedId,
+}: {
+  files: TelegramLibraryItem[]
+  folders: TelegramFolderItem[]
+  onCreate: () => void
+  onDelete: (folder: TelegramFolderItem) => void
+  onMove: (id: string, folderId: string | null) => void
+  onRename: (folder: TelegramFolderItem) => void
+  onSelect: (id: string) => void
+  selectedId: string
+}) {
+  function folderDrop(event: DragEvent<HTMLElement>, folderId: string | null) {
+    const id = event.dataTransfer.getData('application/x-telegram-file')
+    if (!id) return
+    event.preventDefault()
+    onMove(id, folderId)
+  }
+
+  return (
+    <aside className="border-b border-hairline bg-canvas-card p-3 dark:border-gray-800 dark:bg-dark-elevated md:border-b-0 md:border-r">
+      <div className="mb-2 flex items-center justify-between px-2">
+        <span className="text-xs font-semibold uppercase tracking-wider text-ink-muted">Folders</span>
+        <button type="button" onClick={onCreate} title="New folder" className="rounded-md p-1.5 text-ink-muted hover:bg-canvas hover:text-primary dark:hover:bg-dark"><FolderPlus size={15} /></button>
+      </div>
+      <nav className="flex gap-1 overflow-x-auto pb-1 md:block md:overflow-visible">
+        <FolderNavButton active={selectedId === 'all'} count={files.length} icon={HardDrive} label="All files" onClick={() => onSelect('all')} />
+        <div onDragOver={(event) => event.preventDefault()} onDrop={(event) => folderDrop(event, null)}>
+          <FolderNavButton active={selectedId === 'root'} count={files.filter((item) => item.folderId === null).length} icon={FolderOpen} label="My Drive" onClick={() => onSelect('root')} />
+        </div>
+        <div className="contents md:block md:pl-2">
+          {folders.filter((folder) => folder.parentId === null).map((folder) => (
+            <FolderTreeRow
+              key={folder.id}
+              files={files}
+              folder={folder}
+              folders={folders}
+              onDelete={onDelete}
+              onDrop={folderDrop}
+              onRename={onRename}
+              onSelect={onSelect}
+              selectedId={selectedId}
+            />
+          ))}
+        </div>
+      </nav>
+      <p className="mt-4 hidden rounded-md bg-canvas px-3 py-2 text-xs leading-5 text-ink-muted dark:bg-dark md:block">Drop files anywhere in the main area. Drag an existing row onto a folder to move it.</p>
+    </aside>
+  )
+}
+
+function FolderNavButton({ active, count, icon: Icon, label, onClick }: { active: boolean; count: number; icon: typeof Folder; label: string; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className={cn('flex min-w-max items-center gap-2 rounded-md px-3 py-2 text-sm transition md:w-full', active ? 'bg-primary/10 font-semibold text-primary' : 'text-ink-body hover:bg-canvas dark:text-gray-300 dark:hover:bg-dark')}>
+      <Icon size={16} className="shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+      <span className="rounded-full bg-canvas px-1.5 text-[11px] text-ink-muted dark:bg-dark">{count}</span>
+    </button>
+  )
+}
+
+function FolderTreeRow({
+  files,
+  folder,
+  folders,
+  onDelete,
+  onDrop,
+  onRename,
+  onSelect,
+  selectedId,
+}: {
+  files: TelegramLibraryItem[]
+  folder: TelegramFolderItem
+  folders: TelegramFolderItem[]
+  onDelete: (folder: TelegramFolderItem) => void
+  onDrop: (event: DragEvent<HTMLElement>, folderId: string | null) => void
+  onRename: (folder: TelegramFolderItem) => void
+  onSelect: (id: string) => void
+  selectedId: string
+}) {
+  const children = folders.filter((item) => item.parentId === folder.id)
+  const fileCount = files.filter((item) => item.folderId === folder.id).length
+  return (
+    <div className="min-w-max md:min-w-0">
+      <div className={cn('group flex items-center rounded-md pr-1', selectedId === folder.id && 'bg-primary/10')} onDragOver={(event) => event.preventDefault()} onDrop={(event) => onDrop(event, folder.id)}>
+        <button type="button" onClick={() => onSelect(folder.id)} className={cn('flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-sm', selectedId === folder.id ? 'font-semibold text-primary' : 'text-ink-body dark:text-gray-300')}>
+          <Folder size={16} className="shrink-0" />
+          <span className="truncate">{folder.name}</span>
+          <span className="ml-auto rounded-full bg-canvas px-1.5 text-[11px] text-ink-muted dark:bg-dark">{fileCount}</span>
+        </button>
+        <button type="button" onClick={() => onRename(folder)} title="Rename folder" className="px-1 text-xs text-ink-muted hover:text-primary">✎</button>
+        <button type="button" onClick={() => onDelete(folder)} title="Delete folder" className="px-1 text-ink-muted hover:text-error"><X size={13} /></button>
+      </div>
+      {children.length > 0 && (
+        <div className="ml-4 border-l border-hairline pl-1 dark:border-gray-800">
+          {children.map((child) => (
+            <FolderTreeRow
+              key={child.id}
+              files={files}
+              folder={child}
+              folders={folders}
+              onDelete={onDelete}
+              onDrop={onDrop}
+              onRename={onRename}
+              onSelect={onSelect}
+              selectedId={selectedId}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function flattenFolders(folders: TelegramFolderItem[], parentId: string | null = null, depth = 0): Array<{ folder: TelegramFolderItem; depth: number }> {
+  return folders
+    .filter((folder) => folder.parentId === parentId)
+    .flatMap((folder) => [{ folder, depth }, ...flattenFolders(folders, folder.id, depth + 1)])
 }
 
 function LibraryPanel({
   busy,
+  error,
+  folders,
   items,
+  loading,
   onCopy,
   onDelete,
   onDownload,
   onExport,
   onLoad,
+  onMove,
+  onRefresh,
   onSearch,
   onSort,
   search,
@@ -377,12 +735,17 @@ function LibraryPanel({
   stats,
 }: {
   busy: boolean
-  items: LibraryItem[]
+  error: string
+  folders: TelegramFolderItem[]
+  items: TelegramLibraryItem[]
+  loading: boolean
   onCopy: (manifest: TelegramManifest) => void
   onDelete: (id: string) => void
   onDownload: (manifest: TelegramManifest) => void
   onExport: (manifest: TelegramManifest) => void
   onLoad: (manifest: TelegramManifest) => void
+  onMove: (id: string, folderId: string | null) => void
+  onRefresh: () => void
   onSearch: (value: string) => void
   onSort: (value: SortKey) => void
   search: string
@@ -403,6 +766,15 @@ function LibraryPanel({
             </p>
           </div>
           <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              disabled={loading}
+              onClick={onRefresh}
+              title="Refresh library"
+              className="inline-flex items-center justify-center rounded-md border border-hairline bg-canvas-soft px-2.5 py-2 text-ink-muted transition hover:border-primary hover:text-primary disabled:opacity-40 dark:border-gray-800 dark:bg-dark"
+            >
+              <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+            </button>
             <label className="relative block min-w-0 sm:w-64">
               <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-muted" />
               <input
@@ -437,34 +809,63 @@ function LibraryPanel({
             </tr>
           </thead>
           <tbody className="divide-y divide-hairline dark:divide-gray-800">
-            {items.length === 0 ? (
+            {loading ? (
               <tr>
                 <td className="px-4 py-12 text-center text-ink-muted" colSpan={5}>
-                  No files in library yet.
+                  <Loader2 size={18} className="mx-auto mb-2 animate-spin text-primary" />
+                  Loading library...
+                </td>
+              </tr>
+            ) : items.length === 0 ? (
+              <tr>
+                <td className="px-4 py-12 text-center text-ink-muted" colSpan={5}>
+                  {error || 'No files in library yet.'}
                 </td>
               </tr>
             ) : (
               items.map((item) => (
                 <tr
                   key={item.id}
+                  draggable={!busy}
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = 'move'
+                    event.dataTransfer.setData('application/x-telegram-file', item.id)
+                  }}
                   onClick={() => onLoad(item.manifest)}
                   className="cursor-pointer transition hover:bg-canvas-card dark:hover:bg-dark-elevated"
                 >
                   <td className="max-w-[320px] px-4 py-3">
                     <div className="flex items-center gap-2">
                       <FileArchive size={16} className="shrink-0 text-primary" />
-                      <span className="truncate font-medium text-ink dark:text-gray-100">{item.manifest.fileName}</span>
+                      <div className="min-w-0">
+                        <p className="truncate font-medium text-ink dark:text-gray-100">{item.manifest.fileName}</p>
+                        <p className="text-[11px] uppercase tracking-wider text-ink-muted">{item.source.type === 'note' ? 'Note attachment' : 'Drive'}</p>
+                      </div>
                     </div>
                   </td>
                   <td className="px-4 py-3 text-ink-body dark:text-gray-300">{formatBytes(item.manifest.size)}</td>
                   <td className="px-4 py-3 text-ink-body dark:text-gray-300">{item.manifest.parts.length}</td>
-                  <td className="px-4 py-3 text-ink-muted">{new Date(item.savedAt).toLocaleString()}</td>
+                  <td className="px-4 py-3 text-ink-muted">{new Date(item.savedAt ?? item.manifest.createdAt).toLocaleString()}</td>
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-2" onClick={(event) => event.stopPropagation()}>
+                      <select
+                        value={item.folderId ?? ''}
+                        onChange={(event) => onMove(item.id, event.target.value || null)}
+                        title="Move to folder"
+                        className="max-w-32 rounded-md border border-hairline bg-canvas px-2 py-1 text-xs text-ink-body dark:border-gray-800 dark:bg-dark dark:text-gray-300"
+                      >
+                        <option value="">My Drive</option>
+                        {flattenFolders(folders).map(({ folder, depth }) => <option key={folder.id} value={folder.id}>{'— '.repeat(depth)}{folder.name}</option>)}
+                      </select>
                       <IconButton disabled={busy} icon={Download} label="Download and merge" onClick={() => onDownload(item.manifest)} />
                       <IconButton disabled={busy} icon={Copy} label="Copy manifest" onClick={() => onCopy(item.manifest)} />
                       <IconButton disabled={busy} icon={FileJson} label="Export manifest" onClick={() => onExport(item.manifest)} />
-                      <IconButton disabled={busy} icon={Trash2} label="Delete from library" onClick={() => onDelete(item.id)} />
+                      <IconButton
+                        disabled={busy || item.source.type === 'note'}
+                        icon={Trash2}
+                        label={item.source.type === 'note' ? 'Remove it from the source note' : 'Delete from library'}
+                        onClick={() => onDelete(item.id)}
+                      />
                     </div>
                   </td>
                 </tr>
@@ -526,17 +927,21 @@ function ManifestPanel({
 function SettingsCard({
   botToken,
   chatId,
+  discovering,
+  discovery,
   onBotToken,
   onChatId,
   onClear,
-  showChat,
+  onDiscover,
 }: {
   botToken: string
   chatId: string
+  discovering: boolean
+  discovery: TelegramDiscoveryResult | null
   onBotToken: (value: string) => void
   onChatId: (value: string) => void
   onClear: () => void
-  showChat: boolean
+  onDiscover: () => void
 }) {
   return (
     <section className="rounded-md border border-hairline bg-canvas p-4 dark:border-gray-800 dark:bg-dark-soft">
@@ -551,8 +956,29 @@ function SettingsCard({
       </div>
       <div className="space-y-3">
         <LabeledInput label="Bot token" type="password" value={botToken} onChange={onBotToken} placeholder="123456:ABC..." icon={KeyRound} />
-        {showChat && (
-          <LabeledInput label="Chat ID" value={chatId} onChange={onChatId} placeholder="@channel or -100..." icon={MessageSquare} />
+        <LabeledInput label="Chat ID" value={chatId} onChange={onChatId} placeholder="@channel or -100..." icon={MessageSquare} />
+        <button
+          type="button"
+          disabled={!botToken.trim() || discovering}
+          onClick={onDiscover}
+          className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-hairline bg-canvas-soft px-3 py-2 text-sm font-semibold text-ink-body transition hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-800 dark:bg-dark dark:text-gray-200"
+        >
+          <RefreshCw size={15} className={discovering ? 'animate-spin' : ''} />
+          Auto-detect Chat ID
+        </button>
+        {discovery?.startUrl && !discovery.chat && (
+          <a
+            href={discovery.startUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center gap-2 text-xs font-medium text-primary hover:underline"
+          >
+            <ExternalLink size={13} />
+            Open @{discovery.bot.username ?? discovery.bot.firstName}, send /start, then detect again
+          </a>
+        )}
+        {discovery?.webhookActive && !discovery.chat && (
+          <p className="text-xs text-warning">Auto-detect is unavailable while this bot uses a webhook. Manual Chat ID still works.</p>
         )}
       </div>
     </section>
@@ -588,79 +1014,6 @@ function LabeledInput({
         className="w-full rounded-md border border-hairline bg-canvas-soft px-3 py-2 text-sm text-ink outline-none focus:border-primary dark:border-gray-800 dark:bg-dark dark:text-gray-100"
       />
     </label>
-  )
-}
-
-function UploadCard({
-  busy,
-  file,
-  onClear,
-  onFile,
-  parts,
-}: {
-  busy: boolean
-  file: File | null
-  onClear: () => void
-  onFile: (file: File) => void
-  parts: number
-}) {
-  const [dragging, setDragging] = useState(false)
-  const inputId = 'telegram-file-input'
-
-  function handleDrop(event: DragEvent<HTMLLabelElement>) {
-    event.preventDefault()
-    setDragging(false)
-    const dropped = event.dataTransfer.files.item(0)
-    if (dropped) onFile(dropped)
-  }
-
-  return (
-    <section className="rounded-md border border-hairline bg-canvas p-4 dark:border-gray-800 dark:bg-dark-soft">
-      <label
-        htmlFor={inputId}
-        onDragEnter={(event) => {
-          event.preventDefault()
-          setDragging(true)
-        }}
-        onDragOver={(event) => event.preventDefault()}
-        onDragLeave={() => setDragging(false)}
-        onDrop={handleDrop}
-        className={cn(
-          'flex min-h-48 cursor-pointer flex-col items-center justify-center gap-3 rounded-md border border-dashed border-hairline bg-canvas-soft p-5 text-center transition dark:border-gray-700 dark:bg-dark',
-          dragging && 'border-primary bg-primary/10',
-        )}
-      >
-        <span className="rounded-md border border-primary/20 bg-primary/10 p-3 text-primary">
-          <FileArchive size={24} />
-        </span>
-        <span className="font-sans text-base font-semibold text-ink dark:text-gray-100">Drop file or browse</span>
-        <span className="text-xs text-ink-muted">Each Telegram bot part max {formatBytes(maxTelegramPartBytes)}</span>
-        <input
-          id={inputId}
-          type="file"
-          disabled={busy}
-          className="sr-only"
-          onChange={(event) => {
-            const nextFile = event.currentTarget.files?.item(0)
-            if (nextFile) onFile(nextFile)
-            event.currentTarget.value = ''
-          }}
-        />
-      </label>
-      {file && (
-        <div className="mt-4 rounded-md border border-hairline bg-canvas-card p-3 dark:border-gray-800 dark:bg-dark-elevated">
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-ink dark:text-gray-100">{file.name}</p>
-              <p className="mt-1 text-xs text-ink-muted">{formatBytes(file.size)} / {parts} part{parts === 1 ? '' : 's'}</p>
-            </div>
-            <button type="button" onClick={onClear} disabled={busy} className="rounded-md p-2 text-ink-muted transition hover:bg-canvas hover:text-error disabled:opacity-40 dark:hover:bg-dark">
-              <Trash2 size={16} />
-            </button>
-          </div>
-        </div>
-      )}
-    </section>
   )
 }
 
@@ -715,22 +1068,6 @@ function ManifestInput({
         </p>
       )}
     </section>
-  )
-}
-
-function ModeButton({ active, icon: Icon, label, onClick }: { active: boolean; icon: typeof Upload; label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn(
-        'inline-flex items-center gap-2 rounded-sm px-3 py-2 text-sm font-medium text-ink-muted transition hover:text-primary',
-        active && 'bg-canvas text-primary shadow-sm dark:bg-dark',
-      )}
-    >
-      <Icon size={16} />
-      {label}
-    </button>
   )
 }
 

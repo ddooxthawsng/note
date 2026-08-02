@@ -2,14 +2,19 @@ import { useEffect, useRef, useState } from 'react'
 import { X, Trash2, Check, Loader2, Save, FolderOpen, Share2, ListChecks, History, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import TiptapEditor, { toChecklistHtml } from '@/tools/notes/components/Editor/TiptapEditor'
+import NoteAttachments, { primeNoteAttachmentPreview } from '@/tools/notes/components/Editor/NoteAttachments'
 import { getNote, updateNote, softDeleteNote, countWords } from '@/tools/notes/services/noteService'
 import { createTask } from '@/tools/notes/tasks/services/taskService'
 import { useNoteStore } from '@/tools/notes/store/noteStore'
 import { useFolderStore } from '@/tools/notes/store/folderStore'
 import { useUiStore } from '@/shared/store/uiStore'
 import { useAuth } from '@/shared/hooks/useAuth'
-import type { Note, NoteHistoryEntry } from '@/tools/notes/types/note'
+import type { Note, NoteAttachment, NoteHistoryEntry } from '@/tools/notes/types/note'
 import { cn } from '@/shared/utils/cn'
+import { confirmDialog } from '@/shared/utils/dialog'
+import { getTelegramSettings } from '@/tools/telegram/telegramApi'
+import { uploadTelegramFile } from '@/tools/telegram/telegramDriveService'
+import { deleteTelegramFile, saveTelegramFile, telegramFileId } from '@/tools/telegram/telegramLibraryService'
 
 type SaveState = 'idle' | 'saving' | 'saved'
 const AUTOSAVE_MS = 1500
@@ -30,6 +35,9 @@ export default function EditorModal() {
   const [loadingNote, setLoadingNote] = useState(true)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [attachments, setAttachments] = useState<NoteAttachment[]>([])
+  const [attachmentBusy, setAttachmentBusy] = useState(false)
+  const [attachmentProgress, setAttachmentProgress] = useState('')
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dirty = useRef(false)
@@ -59,6 +67,7 @@ export default function EditorModal() {
         setFolderId(loaded.folderId ?? null)
         setColor(loaded.color ?? null)
         setIsShared(loaded.isShared ?? false)
+        setAttachments(loaded.attachments ?? [])
         setHistoryOpen(false)
         dirty.current = false
         setSaveState('idle')
@@ -200,6 +209,10 @@ export default function EditorModal() {
   }
 
   async function handleClose() {
+    if (attachmentBusy) {
+      toast('Wait for the Telegram upload to finish.')
+      return
+    }
     if (dirty.current && editingNoteId) {
       // Save immediately on close if dirty
       if (timer.current) clearTimeout(timer.current)
@@ -235,13 +248,77 @@ export default function EditorModal() {
   }
 
   async function handleDelete() {
-    if (!editingNoteId) return
+    if (!editingNoteId || attachmentBusy) return
     try {
       await softDeleteNote(editingNoteId)
       toast.success('Moved to trash')
       setEditingNoteId(null)
     } catch (e) {
       toast.error((e as Error).message)
+    }
+  }
+
+  async function handleUploadFiles(files: File[]) {
+    if (!user || !editingNoteId || attachmentBusy) return
+    const { botToken, chatId } = getTelegramSettings()
+    if (!botToken || !chatId) {
+      toast.error('Configure Bot token and Chat ID in Telegram Drive first.')
+      return
+    }
+
+    setAttachmentBusy(true)
+    let next = [...attachments]
+    try {
+      for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
+        const file = files[fileIndex]
+        const manifest = await uploadTelegramFile(
+          botToken,
+          chatId,
+          file,
+          (part, total) => setAttachmentProgress(`Uploading ${fileIndex + 1}/${files.length}: part ${part}/${total}`),
+        )
+        const id = await telegramFileId(user.uid, manifest)
+        const attachment = { id, manifest }
+        primeNoteAttachmentPreview(botToken, attachment, file)
+        next = [...next, attachment]
+        await updateNote(editingNoteId, { attachments: next })
+        setAttachments(next)
+        syncSavedNote({ attachments: next })
+        try {
+          await saveTelegramFile(user.uid, manifest, { type: 'note', noteId: editingNoteId })
+        } catch (error) {
+          toast.error(`Attached, but Drive registry sync failed: ${(error as Error).message}`)
+        }
+      }
+      toast.success(`${files.length} attachment(s) uploaded to Telegram`)
+    } catch (error) {
+      toast.error((error as Error).message)
+    } finally {
+      setAttachmentBusy(false)
+      setAttachmentProgress('')
+    }
+  }
+
+  async function handleDeleteAttachment(attachment: NoteAttachment) {
+    if (!editingNoteId || attachmentBusy) return
+    const confirmed = await confirmDialog(
+      'Remove attachment',
+      'Remove it from this note and Telegram Drive library? The Telegram chat message is kept for recovery.',
+      'Remove',
+    )
+    if (!confirmed) return
+    setAttachmentBusy(true)
+    try {
+      const next = attachments.filter((item) => item.id !== attachment.id)
+      await updateNote(editingNoteId, { attachments: next })
+      setAttachments(next)
+      syncSavedNote({ attachments: next })
+      await deleteTelegramFile(attachment.id).catch(() => undefined)
+      toast.success('Attachment removed')
+    } catch (error) {
+      toast.error((error as Error).message)
+    } finally {
+      setAttachmentBusy(false)
     }
   }
 
@@ -468,7 +545,9 @@ export default function EditorModal() {
               />
 
               <div className="mb-4 flex items-center justify-between border-b border-hairline/45 pb-2 dark:border-gray-800">
-                <div className="text-xs text-ink-muted font-medium">{countWords(content)} words</div>
+                <div className="text-xs text-ink-muted font-medium">
+                  {attachmentProgress || `${countWords(content)} words`}
+                </div>
                 
                 {/* Color Selector circles */}
                 <div className="flex items-center gap-1.5">
@@ -507,8 +586,16 @@ export default function EditorModal() {
               </div>
 
               <div className="flex-1">
+                <NoteAttachments
+                  attachments={attachments}
+                  botToken={getTelegramSettings().botToken}
+                  busy={attachmentBusy}
+                  onDelete={(attachment) => void handleDeleteAttachment(attachment)}
+                />
                 <TiptapEditor
                   content={note?.content ?? ''}
+                  uploading={attachmentBusy}
+                  onUploadFiles={(files) => void handleUploadFiles(files)}
                   onChange={(html) => {
                     markDirty()
                     setContent(html)

@@ -8,9 +8,10 @@ import {
   type CollectionReference,
   type DocumentData,
 } from 'firebase/firestore'
-import { AlertTriangle, BarChart3, Database, ExternalLink, Loader2, RefreshCw } from 'lucide-react'
+import { AlertTriangle, BarChart3, Cloud, Database, ExternalLink, FileArchive, HardDrive, Loader2, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { db } from '@/shared/lib/firebase'
+import { formatBytes, type TelegramManifest } from '@/tools/telegram/telegramCore'
 
 interface QuotaDoc {
   id: string
@@ -26,6 +27,10 @@ interface Metrics {
   notes?: number
   folders?: number
   tasks?: number
+  telegramFiles?: number
+  telegramBytes: number
+  telegramParts: number
+  telegramMetadataBytes: number
   quotaDocs: QuotaDoc[]
   errors: Record<string, string>
 }
@@ -55,12 +60,14 @@ export default function FirebaseMonitorPage() {
 
     setLoading(true)
     try {
-      const [users, notes, folders, tasks, quotaSnap] = await Promise.all([
+      const [users, notes, folders, tasks, quotaSnap, telegramSnap] = await Promise.all([
         safeCount('users'),
         safeCount('notes'),
         safeCount('folders'),
         safeCount('tasks'),
         getDocs(query(collection(db, quotaCollection), where('period', '==', period))).catch((error) => error as Error),
+        // ponytail: exact byte totals scan tiny metadata docs; add an aggregate only when this collection becomes large.
+        getDocs(collection(db, 'telegramFiles')).catch((error) => error as Error),
       ])
 
       const errors: Record<string, string> = {}
@@ -68,6 +75,7 @@ export default function FirebaseMonitorPage() {
         if (value instanceof Error) errors[key] = value.message
       }
       if (quotaSnap instanceof Error) errors.quota = quotaSnap.message
+      if (telegramSnap instanceof Error) errors.telegram = telegramSnap.message
 
       const quotaDocs = quotaSnap instanceof Error
         ? []
@@ -75,11 +83,17 @@ export default function FirebaseMonitorPage() {
           .map((doc) => ({ id: doc.id, ...doc.data() }) as QuotaDoc)
           .sort((a, b) => Number(b.used ?? 0) - Number(a.used ?? 0))
 
+      const telegramDocs = telegramSnap instanceof Error ? [] : telegramSnap.docs.map((item) => item.data() as { manifest?: TelegramManifest })
+
       setMetrics({
         users: users instanceof Error ? undefined : users,
         notes: notes instanceof Error ? undefined : notes,
         folders: folders instanceof Error ? undefined : folders,
         tasks: tasks instanceof Error ? undefined : tasks,
+        telegramFiles: telegramSnap instanceof Error ? undefined : telegramSnap.size,
+        telegramBytes: telegramDocs.reduce((sum, item) => sum + Number(item.manifest?.size ?? 0), 0),
+        telegramParts: telegramDocs.reduce((sum, item) => sum + Number(item.manifest?.parts.length ?? 0), 0),
+        telegramMetadataBytes: telegramDocs.reduce((sum, item) => sum + new TextEncoder().encode(JSON.stringify(item)).length, 0),
         quotaDocs,
         errors,
       })
@@ -131,12 +145,40 @@ export default function FirebaseMonitorPage() {
           </div>
         </section>
 
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-5">
           <MetricCard icon={Database} label="Users" loading={loading} value={metrics?.users} error={metrics?.errors.users} />
           <MetricCard icon={Database} label="Notes" loading={loading} value={metrics?.notes} error={metrics?.errors.notes} />
           <MetricCard icon={Database} label="Folders" loading={loading} value={metrics?.folders} error={metrics?.errors.folders} />
           <MetricCard icon={Database} label="Tasks" loading={loading} value={metrics?.tasks} error={metrics?.errors.tasks} />
+          <MetricCard icon={FileArchive} label="Telegram Files" loading={loading} value={metrics?.telegramFiles} error={metrics?.errors.telegram} />
         </div>
+
+        <section className="rounded-md border border-hairline bg-canvas p-4 dark:border-gray-800 dark:bg-dark-soft">
+          <div className="mb-4">
+            <h2 className="font-sans text-base font-semibold text-ink dark:text-gray-100">Storage</h2>
+            <p className="text-sm text-ink-muted">Binary data stays in Telegram; Firestore stores only searchable metadata and note text.</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <StorageCard icon={HardDrive} label="Telegram binary" value={formatBytes(metrics?.telegramBytes ?? 0)} detail={`${metrics?.telegramParts ?? 0} parts`} />
+            <StorageCard icon={Database} label="Telegram metadata" value={formatBytes(metrics?.telegramMetadataBytes ?? 0)} detail="Approximate Firestore JSON size" />
+            <StorageCard icon={Cloud} label="Firestore free storage" value="1 GiB" detail="Actual usage: Firebase Console" />
+          </div>
+        </section>
+
+        <section className="rounded-md border border-hairline bg-canvas p-4 dark:border-gray-800 dark:bg-dark-soft">
+          <div className="mb-4">
+            <h2 className="font-sans text-base font-semibold text-ink dark:text-gray-100">Firebase free quota</h2>
+            <p className="text-sm text-ink-muted">Limits are shown here; Firebase does not expose current project usage through the browser SDK.</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <QuotaCard label="Firestore reads" value="50,000 / day" />
+            <QuotaCard label="Firestore writes" value="20,000 / day" />
+            <QuotaCard label="Firestore deletes" value="20,000 / day" />
+            <QuotaCard label="Firestore outbound" value="10 GiB / month" />
+            <QuotaCard label="Hosting storage" value="10 GB" />
+            <QuotaCard label="Hosting transfer" value="10 GB / month" />
+          </div>
+        </section>
 
         <section className="rounded-md border border-hairline bg-canvas p-4 dark:border-gray-800 dark:bg-dark-soft">
           <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -189,6 +231,25 @@ export default function FirebaseMonitorPage() {
           </div>
         </section>
       </div>
+    </div>
+  )
+}
+
+function StorageCard({ icon: Icon, label, value, detail }: { icon: typeof Database; label: string; value: string; detail: string }) {
+  return (
+    <div className="rounded-md bg-canvas-card p-3 dark:bg-dark-elevated">
+      <p className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink-muted"><Icon size={15} className="text-primary" />{label}</p>
+      <p className="text-xl font-semibold text-ink dark:text-gray-100">{value}</p>
+      <p className="mt-1 text-xs text-ink-muted">{detail}</p>
+    </div>
+  )
+}
+
+function QuotaCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-md border border-hairline px-3 py-2 dark:border-gray-800">
+      <span className="text-sm text-ink-muted">{label}</span>
+      <span className="text-sm font-semibold text-ink dark:text-gray-100">{value}</span>
     </div>
   )
 }

@@ -6,9 +6,11 @@ import { useSpeechToText } from '@/shared/hooks/useSpeechToText'
 import { createNote } from '@/tools/notes/services/noteService'
 import { createTask } from '@/tools/notes/tasks/services/taskService'
 import { askGeminiToFormatSpeech } from '@/shared/utils/ai'
+import { useUiStore } from '@/shared/store/uiStore'
 
 export default function QuickCapture() {
   const { user } = useAuth()
+  const showMicControls = useUiStore((s) => s.showMicControls)
   const [isOpen, setIsOpen] = useState(false)
   const [type, setType] = useState<'note' | 'task'>('note')
   const [lang, setLang] = useState<'vi-VN' | 'en-US'>('vi-VN')
@@ -106,6 +108,8 @@ export default function QuickCapture() {
   }
 
   const isGeminiEnabled = !!(localStorage.getItem('gemini_api_key') || import.meta.env.VITE_GEMINI_API_KEY)
+
+  if (!showMicControls) return null
 
   return (
     <div className="fixed bottom-6 right-6 z-40 select-none">

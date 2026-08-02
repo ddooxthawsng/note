@@ -1,10 +1,16 @@
 import json
-import re
 from datetime import date, datetime, timezone
 
 from firebase_functions import https_fn, options
 
 from shared.converter import ConversionError
+from shared.telegram_drive import (
+    require_bot_token,
+    require_text,
+    telegram_discover_chat,
+    telegram_download,
+    telegram_upload,
+)
 
 # ponytail: lazy init — firebase_admin is heavy and only needed at runtime
 _firebase = None
@@ -19,8 +25,6 @@ def _get_db():
 
 MONTHLY_LIMIT = 100
 DB_COLLECTION = "toolQuota"
-MAX_TELEGRAM_BYTES = 20 * 1024 * 1024
-BOT_TOKEN_RE = re.compile(r"^[0-9]{6,}:[A-Za-z0-9_-]{20,}$")
 
 
 def json_response(payload, status=200):
@@ -107,68 +111,6 @@ def increment_usage(ref, uid):
     return bump(transaction, ref)
 
 
-def require_bot_token(value):
-    token = (value or "").strip()
-    if not BOT_TOKEN_RE.match(token):
-        raise ConversionError("Invalid bot token.", 400)
-    return token
-
-
-def require_text(value, name):
-    text = (value or "").strip()
-    if not text:
-        raise ConversionError(f"{name} is required.", 400)
-    return text
-
-
-def telegram_api(token, method):
-    return f"https://api.telegram.org/bot{token}/{method}"
-
-
-def telegram_upload(token, chat_id, upload, caption=""):
-    import requests
-
-    data = upload.read()
-    if len(data) > MAX_TELEGRAM_BYTES:
-        raise ConversionError("Telegram bot part limit is 20MB.", 413)
-
-    filename = upload.filename or "part.bin"
-    response = requests.post(
-        telegram_api(token, "sendDocument"),
-        data={"chat_id": chat_id, "caption": caption[:1024]},
-        files={"document": (filename, data, upload.content_type or "application/octet-stream")},
-        timeout=180,
-    )
-    payload = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
-    if not response.ok or not payload.get("ok"):
-        raise ConversionError(payload.get("description") or "Telegram upload failed.", response.status_code or 502)
-
-    document = payload["result"]["document"]
-    return {
-        "fileId": document["file_id"],
-        "uniqueId": document.get("file_unique_id"),
-        "fileName": document.get("file_name", filename),
-        "size": document.get("file_size", len(data)),
-    }
-
-
-def telegram_download(token, file_id):
-    import requests
-
-    response = requests.get(telegram_api(token, "getFile"), params={"file_id": file_id}, timeout=60)
-    payload = response.json() if response.headers.get("content-type", "").startswith("application/json") else {}
-    if not response.ok or not payload.get("ok"):
-        raise ConversionError(payload.get("description") or "Telegram getFile failed.", response.status_code or 502)
-
-    file_path = payload["result"]["file_path"]
-    file_response = requests.get(f"https://api.telegram.org/file/bot{token}/{file_path}", timeout=180)
-    if not file_response.ok:
-        raise ConversionError("Telegram download failed.", file_response.status_code or 502)
-    if len(file_response.content) > MAX_TELEGRAM_BYTES:
-        raise ConversionError("Telegram bot download limit is 20MB.", 413)
-    return file_response.content
-
-
 def handle_quota(req):
     uid = require_uid(req)
     return json_response(quota_payload(quota_ref(uid)))
@@ -229,6 +171,13 @@ def handle_telegram_download_part(req):
     )
 
 
+def handle_telegram_discover_chat(req):
+    require_uid(req)
+    data = req.get_json(silent=True) or {}
+    token = require_bot_token(data.get("botToken"))
+    return json_response(telegram_discover_chat(token))
+
+
 @https_fn.on_request(
     cors=options.CorsOptions(
         cors_origins=["*"],
@@ -250,6 +199,8 @@ def tool(req: https_fn.Request) -> https_fn.Response:
             return handle_telegram_upload_part(req)
         if req.method == "POST" and path.endswith("/telegram/download-part"):
             return handle_telegram_download_part(req)
+        if req.method == "POST" and path.endswith("/telegram/discover-chat"):
+            return handle_telegram_discover_chat(req)
     except ConversionError as exc:
         return json_response({"error": str(exc)}, exc.status_code)
 

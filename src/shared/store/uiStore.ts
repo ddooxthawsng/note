@@ -2,6 +2,8 @@ import { create } from 'zustand'
 
 type Theme = 'light' | 'dark'
 
+const MIC_CONTROLS_KEY = 'show_mic_controls'
+
 function getInitialTheme(): Theme {
   const stored = localStorage.getItem('theme')
   if (stored === 'light' || stored === 'dark') return stored
@@ -23,13 +25,13 @@ export interface ContextMenuConfig {
 
 interface UiState {
   theme: Theme
+  showMicControls: boolean
   editingNoteId: string | null
   contextMenu: ContextMenuConfig | null
-  isDraggingNote: boolean
   toggleTheme: () => void
+  toggleMicControls: () => void
   setEditingNoteId: (id: string | null) => void
   setContextMenu: (menu: ContextMenuConfig | null) => void
-  setIsDraggingNote: (dragging: boolean) => void
 }
 
 export const useUiStore = create<UiState>((set, get) => {
@@ -37,16 +39,20 @@ export const useUiStore = create<UiState>((set, get) => {
   applyTheme(theme)
   return {
     theme,
+    showMicControls: localStorage.getItem(MIC_CONTROLS_KEY) !== 'false',
     editingNoteId: null,
     contextMenu: null,
-    isDraggingNote: false,
     toggleTheme: () => {
       const next: Theme = get().theme === 'dark' ? 'light' : 'dark'
       applyTheme(next)
       set({ theme: next })
     },
+    toggleMicControls: () => {
+      const next = !get().showMicControls
+      localStorage.setItem(MIC_CONTROLS_KEY, String(next))
+      set({ showMicControls: next })
+    },
     setEditingNoteId: (editingNoteId) => set({ editingNoteId }),
     setContextMenu: (contextMenu) => set({ contextMenu }),
-    setIsDraggingNote: (isDraggingNote) => set({ isDraggingNote }),
   }
 })

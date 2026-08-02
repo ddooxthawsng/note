@@ -6,7 +6,6 @@ import {
   updateDoc,
   query,
   where,
-  orderBy,
   onSnapshot,
   serverTimestamp,
   Timestamp,
@@ -33,6 +32,8 @@ function fromSnapshot(snap: QueryDocumentSnapshot<DocumentData>): Folder {
     id: snap.id,
     userId: d.userId,
     name: d.name ?? '',
+    parentId: d.parentId ?? null,
+    order: d.order ?? null,
     createdAt: toMillis(d.createdAt),
   }
 }
@@ -44,27 +45,32 @@ export function subscribeToFolders(
   onError?: (err: Error) => void,
 ) {
   const database = requireDb()
-  const q = query(
-    collection(database, COLLECTION),
-    where('userId', '==', userId),
-    orderBy('createdAt', 'asc'),
-  )
+  const q = query(collection(database, COLLECTION), where('userId', '==', userId))
   return onSnapshot(
     q,
-    (snap) => cb(snap.docs.map(fromSnapshot)),
+    (snap) => cb(snap.docs.map(fromSnapshot).sort((a, b) =>
+      (a.order ?? a.createdAt ?? 0) - (b.order ?? b.createdAt ?? 0) || a.name.localeCompare(b.name),
+    )),
     (err) => onError?.(err),
   )
 }
 
-export async function createFolder(userId: string, name: string) {
+export async function createFolder(userId: string, name: string, parentId: string | null = null) {
   const database = requireDb()
   const payload = {
     userId,
     name,
+    parentId,
+    order: Date.now(),
     createdAt: serverTimestamp(),
   }
   const ref = await addDoc(collection(database, COLLECTION), payload)
-  return { id: ref.id, userId, name, createdAt: Date.now() }
+  return { id: ref.id, userId, name, parentId, order: payload.order, createdAt: Date.now() }
+}
+
+export async function updateFolderPosition(folderId: string, parentId: string | null, order: number) {
+  const database = requireDb()
+  await updateDoc(doc(database, COLLECTION, folderId), { parentId, order })
 }
 
 export async function updateFolder(folderId: string, name: string) {

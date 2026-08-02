@@ -3,12 +3,12 @@ import {
   doc,
   addDoc,
   updateDoc,
-  deleteDoc,
   getDoc,
   query,
   where,
   onSnapshot,
   runTransaction,
+  writeBatch,
   serverTimestamp,
   Timestamp,
   type DocumentData,
@@ -52,6 +52,7 @@ function fromSnapshot(snap: QueryDocumentSnapshot<DocumentData>): Note {
     deletedAt: toMillis(d.deletedAt),
     order: d.order ?? null,
     history: d.history ?? [],
+    attachments: d.attachments ?? [],
   }
 }
 
@@ -124,6 +125,7 @@ export async function createNote(userId: string, input: NewNoteInput = {}) {
     deletedAt: null,
     order: Date.now(),
     history: [],
+    attachments: input.attachments ?? [],
   }
   const ref = await addDoc(collection(database, COLLECTION), payload)
   return ref.id
@@ -156,12 +158,16 @@ export async function updateNote(noteId: string, patch: Partial<NoteDoc>) {
   })
 }
 
-export async function swapNotesOrder(noteId1: string, noteId2: string, order1: number, order2: number) {
+export async function saveNotesOrder(
+  positions: Array<{ id: string; order: number; isPinned: boolean }>,
+) {
   const database = requireDb()
-  await Promise.all([
-    updateDoc(doc(database, COLLECTION, noteId1), { order: order2, updatedAt: serverTimestamp() }),
-    updateDoc(doc(database, COLLECTION, noteId2), { order: order1, updatedAt: serverTimestamp() }),
-  ])
+  // ponytail: one batch is enough for the current UI; split if a view can exceed 500 notes.
+  const batch = writeBatch(database)
+  positions.forEach(({ id, order, isPinned }) => {
+    batch.update(doc(database, COLLECTION, id), { order, isPinned })
+  })
+  await batch.commit()
 }
 
 /** Soft delete: move to trash (recoverable). */
@@ -214,5 +220,13 @@ export async function restoreNote(noteId: string) {
 /** Permanently remove a note document. Irreversible. */
 export async function permanentDeleteNote(noteId: string) {
   const database = requireDb()
-  await deleteDoc(doc(database, COLLECTION, noteId))
+  const noteRef = doc(database, COLLECTION, noteId)
+  const snap = await getDoc(noteRef)
+  const batch = writeBatch(database)
+  batch.delete(noteRef)
+  if (snap.exists()) {
+    const attachments = (snap.data() as NoteDoc).attachments ?? []
+    attachments.forEach((attachment) => batch.delete(doc(database, 'telegramFiles', attachment.id)))
+  }
+  await batch.commit()
 }

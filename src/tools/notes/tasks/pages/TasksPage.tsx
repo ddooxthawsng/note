@@ -9,9 +9,11 @@ import { scheduleTaskNotification, cancelTaskNotification } from '@/shared/utils
 import { useSpeechToText } from '@/shared/hooks/useSpeechToText'
 import { askGeminiToParseTasks } from '@/shared/utils/ai'
 import { cn } from '@/shared/utils/cn'
+import { useUiStore } from '@/shared/store/uiStore'
 
 export default function TasksPage() {
   const { user } = useAuth()
+  const showMicControls = useUiStore((s) => s.showMicControls)
   const tasks = useTaskStore(selectFilteredTasks)
   const loading = useTaskStore((s) => s.loading)
   const filter = useTaskStore((s) => s.filter)
@@ -235,7 +237,7 @@ export default function TasksPage() {
                 rows={3}
                 className="w-full rounded-lg border border-gray-200 bg-canvas px-4 py-2 pr-10 outline-none focus:border-primary dark:border-gray-800 dark:bg-dark text-sm"
               />
-              {aiSpeechSupported && (
+              {showMicControls && aiSpeechSupported && (
                 <button
                   type="button"
                   onClick={toggleAiListening}
@@ -277,7 +279,7 @@ export default function TasksPage() {
               placeholder={isListening ? "Listening..." : "What needs to be done?"}
               className="w-full rounded-lg border border-gray-200 bg-gray-50 pl-4 pr-10 py-2 outline-none focus:border-primary dark:border-gray-700 dark:bg-gray-800"
             />
-            {speechSupported && (
+            {showMicControls && speechSupported && (
               <button
                 type="button"
                 onClick={toggleListening}

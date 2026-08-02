@@ -58,7 +58,7 @@ firebase deploy --only firestore:rules,firestore:indexes
 
 ```bash
 npm run build
-firebase deploy --only hosting --project thangdo-note
+firebase deploy --only hosting --project random-note-6c0e3
 ```
 
-`firebase.json` deploys the Hosting site `thangdo`, so the public URL is <https://thangdo.web.app>.
+`firebase.json` deploys the Hosting site `thangdo-note`, so the public URL is <https://thangdo-note.web.app>.

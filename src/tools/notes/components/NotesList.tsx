@@ -1,10 +1,10 @@
 import type { Note } from '@/tools/notes/types/note'
 import NoteCard, { type NoteViewMode } from './NoteCard'
 import { FileText, Pin } from 'lucide-react'
-import { togglePin } from '@/tools/notes/services/noteService'
+import { saveNotesOrder } from '@/tools/notes/services/noteService'
 import toast from 'react-hot-toast'
 import { useState } from 'react'
-import { useUiStore } from '@/shared/store/uiStore'
+import { useNoteStore } from '@/tools/notes/store/noteStore'
 import { cn } from '@/shared/utils/cn'
 
 export default function NotesList({
@@ -20,10 +20,10 @@ export default function NotesList({
   viewMode?: NoteViewMode
   columns?: number
 }) {
-  const isDraggingNote = useUiStore((s) => s.isDraggingNote)
   const [dragOverSection, setDragOverSection] = useState<'pinned' | 'others' | null>(null)
   const gridClass = viewMode === 'title' ? "grid gap-2" : "grid gap-3"
   const gridStyle = { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }
+  const dropAxis = viewMode === 'title' || columns === 1 ? 'vertical' : 'horizontal'
 
   if (loading) {
     return (
@@ -51,38 +51,93 @@ export default function NotesList({
   const pinnedNotes = notes.filter((n) => n.isPinned)
   const otherNotes = notes.filter((n) => !n.isPinned)
 
-  async function handleDrop(e: React.DragEvent, isPinnedTarget: boolean) {
-    e.preventDefault()
-    setDragOverSection(null)
-    const noteId = e.dataTransfer.getData('text/plain')
-    if (!noteId) return
+  function noteOrder(note: Note) {
+    return note.order ?? note.updatedAt ?? note.createdAt ?? 0
+  }
 
-    const noteObj = notes.find((n) => n.id === noteId)
-    if (!noteObj || noteObj.isPinned === isPinnedTarget) return
+  async function persistOrder(orderedNotes: Note[]) {
+    const ranks = notes.map(noteOrder).sort((a, b) => b - a)
+    for (let index = 1; index < ranks.length; index += 1) {
+      if (ranks[index] >= ranks[index - 1]) ranks[index] = ranks[index - 1] - 0.001
+    }
+    await saveNotesOrder(orderedNotes.map((note, index) => ({
+      id: note.id,
+      order: ranks[index],
+      isPinned: note.isPinned,
+    })))
+    useNoteStore.getState().setSortBy('custom')
+  }
+
+  async function moveNote(
+    draggedId: string,
+    targetId: string | null,
+    position: 'before' | 'after',
+    targetPinned: boolean,
+  ) {
+    const dragged = notes.find((note) => note.id === draggedId)
+    if (!dragged) return
+
+    const reordered = notes.filter((note) => note.id !== draggedId)
+    const moved = { ...dragged, isPinned: targetPinned }
+    let insertAt: number
+    if (targetId) {
+      const targetIndex = reordered.findIndex((note) => note.id === targetId)
+      if (targetIndex < 0) return
+      insertAt = targetIndex + (position === 'after' ? 1 : 0)
+    } else if (targetPinned) {
+      insertAt = reordered.filter((note) => note.isPinned).length
+    } else {
+      insertAt = reordered.length
+    }
+    reordered.splice(insertAt, 0, moved)
 
     try {
-      await togglePin(noteId, isPinnedTarget)
-      toast.success(isPinnedTarget ? 'Pinned note' : 'Unpinned note')
+      await persistOrder(reordered)
+      toast.success(targetPinned !== dragged.isPinned
+        ? targetPinned ? 'Pinned note' : 'Unpinned note'
+        : 'Notes reordered!')
     } catch (err) {
       toast.error((err as Error).message)
     }
   }
 
+  async function handleSectionDrop(e: React.DragEvent, isPinnedTarget: boolean) {
+    e.preventDefault()
+    setDragOverSection(null)
+    const noteId = e.dataTransfer.getData('application/x-note-id') || e.dataTransfer.getData('text/plain')
+    if (!noteId) return
+    await moveNote(noteId, null, 'after', isPinnedTarget)
+  }
+
+  const renderNote = (note: Note) => (
+    <NoteCard
+      key={note.id}
+      note={note}
+      viewMode={viewMode}
+      dropAxis={dropAxis}
+      onNoteDrop={(draggedId, targetId, position) => moveNote(
+        draggedId,
+        targetId,
+        position,
+        note.isPinned,
+      )}
+    />
+  )
+
   return (
     <div className="space-y-5">
       {/* Pinned Section */}
-      {(pinnedNotes.length > 0 || isDraggingNote) && (
+      {pinnedNotes.length > 0 && (
         <div
           onDragOver={(e) => {
             e.preventDefault()
             setDragOverSection('pinned')
           }}
           onDragLeave={() => setDragOverSection(null)}
-          onDrop={(e) => handleDrop(e, true)}
+          onDrop={(e) => handleSectionDrop(e, true)}
           className={cn(
             "flow-root rounded-xl p-2 transition-all duration-200 border border-transparent min-h-[60px]",
             dragOverSection === 'pinned' && "border-dashed border-primary bg-primary/5 scale-[1.005]",
-            pinnedNotes.length === 0 && isDraggingNote && "border-dashed border-hairline bg-canvas-soft dark:border-gray-800 dark:bg-dark-elevated/40"
           )}
         >
           <div className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-ink-muted">
@@ -90,17 +145,9 @@ export default function NotesList({
             <span>Pinned</span>
           </div>
           
-          {pinnedNotes.length > 0 ? (
-            <div className={gridClass} style={gridStyle}>
-              {pinnedNotes.map((note) => (
-                <NoteCard key={note.id} note={note} viewMode={viewMode} />
-              ))}
-            </div>
-          ) : (
-            <div className="flex h-20 items-center justify-center text-xs font-medium text-ink-muted/80">
-              Drag and drop note card here to Pin
-            </div>
-          )}
+          <div className={gridClass} style={gridStyle}>
+            {pinnedNotes.map(renderNote)}
+          </div>
         </div>
       )}
 
@@ -111,7 +158,7 @@ export default function NotesList({
           setDragOverSection('others')
         }}
         onDragLeave={() => setDragOverSection(null)}
-        onDrop={(e) => handleDrop(e, false)}
+        onDrop={(e) => handleSectionDrop(e, false)}
         className={cn(
           "flow-root rounded-xl p-2 transition-all duration-200 border border-transparent min-h-[250px]",
           dragOverSection === 'others' && "border-dashed border-primary bg-primary/5 scale-[1.005]"
@@ -125,9 +172,7 @@ export default function NotesList({
 
         {otherNotes.length > 0 ? (
           <div className={gridClass} style={gridStyle}>
-            {otherNotes.map((note) => (
-              <NoteCard key={note.id} note={note} viewMode={viewMode} />
-            ))}
+            {otherNotes.map(renderNote)}
           </div>
         ) : pinnedNotes.length > 0 ? (
           <div className="flex min-h-[100px] items-center justify-center rounded-xl border border-dashed border-hairline text-xs font-medium text-ink-muted/80 dark:border-gray-800">
@@ -135,9 +180,7 @@ export default function NotesList({
           </div>
         ) : (
           <div className={gridClass} style={gridStyle}>
-            {notes.map((note) => (
-              <NoteCard key={note.id} note={note} viewMode={viewMode} />
-            ))}
+            {notes.map(renderNote)}
           </div>
         )}
       </div>

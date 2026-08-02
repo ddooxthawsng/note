@@ -1,11 +1,10 @@
-import { Pin, Star, Trash2 } from 'lucide-react'
+import { Paperclip, Pin, Star, Trash2 } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import toast from 'react-hot-toast'
 import type { Note } from '@/tools/notes/types/note'
 import { cn } from '@/shared/utils/cn'
-import { softDeleteNote, togglePin, toggleFavorite, swapNotesOrder } from '@/tools/notes/services/noteService'
+import { softDeleteNote, togglePin, toggleFavorite } from '@/tools/notes/services/noteService'
 import { useUiStore } from '@/shared/store/uiStore'
-import { useNoteStore } from '@/tools/notes/store/noteStore'
 import { useState } from 'react'
 
 export type NoteViewMode = 'normal' | 'title'
@@ -22,11 +21,22 @@ const cardColors: Record<string, string> = {
   purple: 'bg-[#f3e8fd] border-[#ebd4fc] text-[#a800d7] dark:bg-[#30203d] dark:border-[#422d56] dark:text-[#d7aefb]',
 }
 
-export default function NoteCard({ note, viewMode = 'normal' }: { note: Note; viewMode?: NoteViewMode }) {
+type DropPosition = 'before' | 'after'
+
+export default function NoteCard({
+  note,
+  viewMode = 'normal',
+  dropAxis = 'horizontal',
+  onNoteDrop,
+}: {
+  note: Note
+  viewMode?: NoteViewMode
+  dropAxis?: 'horizontal' | 'vertical'
+  onNoteDrop: (draggedId: string, targetId: string, position: DropPosition) => Promise<void>
+}) {
   const setEditingNoteId = useUiStore((s) => s.setEditingNoteId)
   const setContextMenu = useUiStore((s) => s.setContextMenu)
-  const setIsDraggingNote = useUiStore((s) => s.setIsDraggingNote)
-  const [isDragOver, setIsDragOver] = useState(false)
+  const [dropPosition, setDropPosition] = useState<DropPosition | null>(null)
   const titleOnly = viewMode === 'title'
 
   async function withCatch(fn: () => Promise<void>) {
@@ -54,42 +64,37 @@ export default function NoteCard({ note, viewMode = 'normal' }: { note: Note; vi
       draggable
       onDragStart={(e) => {
         e.dataTransfer.setData('text/plain', note.id)
-        e.dataTransfer.setData('application/order', String(note.order ?? note.updatedAt ?? note.createdAt ?? Date.now()))
+        e.dataTransfer.setData('application/x-note-id', note.id)
         e.dataTransfer.effectAllowed = 'move'
-        setIsDraggingNote(true)
-      }}
-      onDragEnd={() => {
-        setIsDraggingNote(false)
       }}
       onDragOver={(e) => {
-        if (e.dataTransfer.types.includes('text/plain')) {
-          e.preventDefault()
-          setIsDragOver(true)
-        }
+        const types = Array.from(e.dataTransfer.types)
+        if (!types.includes('application/x-note-id') && !types.includes('text/plain')) return
+        e.preventDefault()
+        e.stopPropagation()
+        const rect = e.currentTarget.getBoundingClientRect()
+        const before = dropAxis === 'vertical'
+          ? e.clientY < rect.top + rect.height / 2
+          : e.clientX < rect.left + rect.width / 2
+        setDropPosition(before ? 'before' : 'after')
       }}
       onDragLeave={() => {
-        setIsDragOver(false)
+        setDropPosition(null)
       }}
       onDrop={async (e) => {
         e.preventDefault()
         e.stopPropagation()
-        setIsDragOver(false)
-        setIsDraggingNote(false)
+        const rect = e.currentTarget.getBoundingClientRect()
+        const position: DropPosition = (dropAxis === 'vertical'
+          ? e.clientY < rect.top + rect.height / 2
+          : e.clientX < rect.left + rect.width / 2)
+          ? 'before'
+          : 'after'
+        setDropPosition(null)
 
-        const draggedId = e.dataTransfer.getData('text/plain')
-        const draggedOrderStr = e.dataTransfer.getData('application/order')
+        const draggedId = e.dataTransfer.getData('application/x-note-id') || e.dataTransfer.getData('text/plain')
         if (!draggedId || draggedId === note.id) return
-
-        const draggedOrder = Number(draggedOrderStr)
-        const targetOrder = note.order ?? note.updatedAt ?? note.createdAt ?? Date.now()
-
-        try {
-          await swapNotesOrder(draggedId, note.id, draggedOrder, targetOrder)
-          useNoteStore.getState().setSortBy('custom')
-          toast.success('Notes reordered!')
-        } catch (err) {
-          toast.error((err as Error).message)
-        }
+        await onNoteDrop(draggedId, note.id, position)
       }}
       className={cn(
         'group flex min-w-0 cursor-pointer flex-col overflow-hidden rounded-xl border transition duration-200 hover:shadow-sm hover:scale-[1.01] active:scale-[0.99] animate-fade-in-up select-none',
@@ -97,7 +102,11 @@ export default function NoteCard({ note, viewMode = 'normal' }: { note: Note; vi
         note.color
           ? cardColors[note.color] || 'border-hairline bg-canvas-card dark:border-gray-800 dark:bg-dark-elevated'
           : 'border-hairline bg-canvas-card dark:border-gray-800 dark:bg-dark-elevated hover:border-primary/60 dark:hover:border-primary/60',
-        isDragOver && 'border-dashed border-primary bg-primary/5 scale-[1.02]',
+        dropPosition && 'border-primary bg-primary/5 scale-[1.02]',
+        dropPosition === 'before' && dropAxis === 'horizontal' && 'border-l-4 border-l-primary',
+        dropPosition === 'after' && dropAxis === 'horizontal' && 'border-r-4 border-r-primary',
+        dropPosition === 'before' && dropAxis === 'vertical' && 'border-t-4 border-t-primary',
+        dropPosition === 'after' && dropAxis === 'vertical' && 'border-b-4 border-b-primary',
       )}
     >
       <div className={cn('flex items-start justify-between gap-2', !titleOnly && 'mb-1.5')}>
@@ -173,7 +182,10 @@ export default function NoteCard({ note, viewMode = 'normal' }: { note: Note; vi
                 ? formatDistanceToNow(note.updatedAt, { addSuffix: true })
                 : 'just now'}
             </span>
-            <span>{note.wordCount} words</span>
+            <span className="flex items-center gap-2">
+              {!!note.attachments?.length && <span className="flex items-center gap-1"><Paperclip size={12} />{note.attachments.length}</span>}
+              <span>{note.wordCount} words</span>
+            </span>
           </div>
 
           {note.tags.length > 0 && (

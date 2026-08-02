@@ -43,6 +43,24 @@ service cloud.firestore {
       allow delete: if isSignedIn() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
+    // Telegram Drive manifests. Bot tokens and file bytes are never stored here.
+    match /telegramFiles/{fileId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow delete: if isOwner(resource.data.userId);
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+    }
+
+    // Telegram Drive folder metadata. File bytes remain in Telegram.
+    match /telegramFolders/{folderId} {
+      allow read: if isOwner(resource.data.userId) || isAdmin();
+      allow delete: if isOwner(resource.data.userId);
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isOwner(resource.data.userId)
+                    && request.resource.data.userId == resource.data.userId;
+    }
+
     match /conversionQuota/{quotaId} {
       allow read: if isAdmin();
     }

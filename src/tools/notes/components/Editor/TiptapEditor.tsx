@@ -2,7 +2,7 @@ import { useEditor, EditorContent } from '@tiptap/react'
 import { Mark, Node, mergeAttributes } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   Bold,
   Italic,
@@ -29,6 +29,7 @@ import {
   History,
   Highlighter,
   ListChecks,
+  Paperclip,
 } from 'lucide-react'
 import { cn } from '@/shared/utils/cn'
 import toast from 'react-hot-toast'
@@ -109,16 +110,20 @@ interface Props {
   content: string
   onChange: (html: string) => void
   editable?: boolean
+  onUploadFiles?: (files: File[]) => void
+  uploading?: boolean
 }
 
 function ToolbarButton({
   onClick,
   active,
+  disabled,
   label,
   children,
 }: {
   onClick: () => void
   active?: boolean
+  disabled?: boolean
   label: string
   children: React.ReactNode
 }) {
@@ -126,11 +131,13 @@ function ToolbarButton({
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       aria-label={label}
       title={label}
       className={cn(
         'rounded-md p-1.5 text-ink-body transition hover:bg-canvas-card dark:text-gray-300 dark:hover:bg-dark-elevated',
         active && 'bg-primary/10 text-primary',
+        disabled && 'cursor-not-allowed opacity-40',
       )}
     >
       {children}
@@ -138,12 +145,16 @@ function ToolbarButton({
   )
 }
 
-export default function TiptapEditor({ content, onChange, editable = true }: Props) {
+export default function TiptapEditor({ content, onChange, editable = true, onUploadFiles, uploading = false }: Props) {
+  const showMicControls = useUiStore((s) => s.showMicControls)
   const [searchOpen, setSearchOpen] = useState(false)
   const [findText, setFindText] = useState('')
   const [replaceText, setReplaceText] = useState('')
   const [, setSelectionUpdateToken] = useState(0)
   const [aiLoading, setAiLoading] = useState(false)
+  const fileInput = useRef<HTMLInputElement>(null)
+  const uploadFiles = useRef(onUploadFiles)
+  uploadFiles.current = onUploadFiles
 
   interface HistoryItem {
     id: string
@@ -177,6 +188,20 @@ export default function TiptapEditor({ content, onChange, editable = true }: Pro
     editorProps: {
       attributes: {
         class: 'prose max-w-none focus:outline-none',
+      },
+      handleDrop: (_view, event) => {
+        const files = Array.from(event.dataTransfer?.files ?? [])
+        if (!files.length || !uploadFiles.current) return false
+        event.preventDefault()
+        uploadFiles.current(files)
+        return true
+      },
+      handlePaste: (_view, event) => {
+        const files = Array.from(event.clipboardData?.files ?? [])
+        if (!files.length || !uploadFiles.current) return false
+        event.preventDefault()
+        uploadFiles.current(files)
+        return true
       },
     },
   })
@@ -551,6 +576,29 @@ export default function TiptapEditor({ content, onChange, editable = true }: Pro
             <ToolbarButton label="Checklist" active={editor.isActive('checklistItem')} onClick={handleChecklist}>
               <ListChecks size={18} />
             </ToolbarButton>
+            {onUploadFiles && (
+              <>
+                <ToolbarButton
+                  label="Upload attachment to Telegram"
+                  active={uploading}
+                  disabled={uploading}
+                  onClick={() => fileInput.current?.click()}
+                >
+                  {uploading ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} />}
+                </ToolbarButton>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  multiple
+                  className="sr-only"
+                  onChange={(event) => {
+                    const files = Array.from(event.currentTarget.files ?? [])
+                    if (files.length) onUploadFiles(files)
+                    event.currentTarget.value = ''
+                  }}
+                />
+              </>
+            )}
             <span className="mx-1 h-5 w-px bg-hairline dark:bg-gray-850" />
             <div className="flex items-center gap-1 px-1" title="Highlight">
               <Highlighter size={16} className="text-ink-muted" />
@@ -615,7 +663,7 @@ export default function TiptapEditor({ content, onChange, editable = true }: Pro
 
             {/* AI and Speech features */}
             <span className="mx-1 h-5 w-px bg-hairline dark:bg-gray-850" />
-            {speechSupported && (
+            {showMicControls && speechSupported && (
               <ToolbarButton
                 label="Talk to Text"
                 active={isListening}

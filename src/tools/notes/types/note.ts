@@ -1,6 +1,12 @@
 import type { Timestamp } from 'firebase/firestore'
+import type { TelegramManifest } from '@/tools/telegram/telegramCore'
 
 export type NoteType = 'note' | 'list' | 'table' | 'sketch'
+
+export interface NoteAttachment {
+  id: string
+  manifest: TelegramManifest
+}
 
 export interface NoteHistoryEntry {
   title: string
@@ -34,6 +40,7 @@ export interface NoteDoc {
   deletedAt: Timestamp | null
   order?: number | null
   history?: NoteHistoryEntry[]
+  attachments?: NoteAttachment[]
 }
 
 /** App-side note (id attached, timestamps normalized to millis). */
@@ -47,5 +54,5 @@ export interface Note extends Omit<NoteDoc, 'createdAt' | 'updatedAt' | 'deleted
 }
 
 export type NewNoteInput = Partial<
-  Pick<NoteDoc, 'title' | 'content' | 'folderId' | 'tags' | 'type' | 'color'>
+  Pick<NoteDoc, 'title' | 'content' | 'folderId' | 'tags' | 'type' | 'color' | 'attachments'>
 >

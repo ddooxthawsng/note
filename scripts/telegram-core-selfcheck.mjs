@@ -37,6 +37,7 @@ const manifest = createManifest(
   ],
 )
 assert.equal(parseManifest(JSON.stringify(manifest)).parts.length, 2)
+assert.equal(createManifest({ name: 'photo.PNG', size: 3 }, [{ index: 0, fileId: 'image', fileName: 'photo.PNG', size: 3 }]).mimeType, 'image/png')
 assert.throws(() => parseManifest(JSON.stringify({ ...manifest, parts: [{ ...manifest.parts[0], size: maxTelegramPartBytes + 1 }] })))
 assert.throws(() => parseManifest(JSON.stringify({ ...manifest, parts: [{ ...manifest.parts[0], index: 1 }] })))
 

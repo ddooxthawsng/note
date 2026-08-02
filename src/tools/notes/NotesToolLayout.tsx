@@ -1,5 +1,5 @@
-import { Outlet, useLocation } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, Plus, Search, SlidersHorizontal } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/shared/hooks/useAuth'
@@ -19,10 +19,12 @@ const NOTE_VIEW_MODE_KEY = 'notes_view_mode'
 const NOTE_COLUMNS_KEY = 'notes_columns'
 const SIDEBAR_COLLAPSED_KEY = 'notes_sidebar_collapsed'
 const SIDEBAR_DEFAULT_COLLAPSED_KEY = 'notes_sidebar_default_collapsed'
+const LAST_FOLDER_KEY = 'notes_last_folder'
 
 export default function NotesToolLayout() {
   const { user } = useAuth()
   const location = useLocation()
+  const navigate = useNavigate()
   const subscribeNotes = useNoteStore((s) => s.subscribe)
   const unsubscribeNotes = useNoteStore((s) => s.unsubscribe)
   const search = useNoteStore((s) => s.search)
@@ -33,12 +35,14 @@ export default function NotesToolLayout() {
   const allVisibleNotes = useNoteStore(selectVisibleNotes)
   const allNotes = useNoteStore((s) => s.notes)
   const folders = useFolderStore((s) => s.folders)
+  const foldersLoading = useFolderStore((s) => s.loading)
   const subscribeFolders = useFolderStore((s) => s.subscribe)
   const unsubscribeFolders = useFolderStore((s) => s.unsubscribe)
   const subscribeTasks = useTaskStore((s) => s.subscribe)
   const unsubscribeTasks = useTaskStore((s) => s.unsubscribe)
   const [sortOpen, setSortOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const restoredFolder = useRef(false)
   const [sidebarDefaultCollapsed, setSidebarDefaultCollapsed] = useState(() => (
     localStorage.getItem(SIDEBAR_DEFAULT_COLLAPSED_KEY) === 'true'
   ))
@@ -73,6 +77,7 @@ export default function NotesToolLayout() {
   const countLabel = location.pathname.endsWith('/favorites') ? `${notesCount} starred` : `${notesCount} notes`
 
   const sortOptions = [
+    { value: 'custom', label: 'Custom order' },
     { value: 'updatedAt', label: 'Last modified' },
     { value: 'createdAt', label: 'Date created' },
     { value: 'title', label: 'Title' },
@@ -91,6 +96,20 @@ export default function NotesToolLayout() {
       unsubscribeTasks()
     }
   }, [user, subscribeNotes, unsubscribeNotes, subscribeFolders, unsubscribeFolders, subscribeTasks, unsubscribeTasks])
+
+  useEffect(() => {
+    if (!user || foldersLoading || restoredFolder.current) return
+    restoredFolder.current = true
+    if (location.pathname !== '/tools/notes') return
+    const savedFolderId = localStorage.getItem(`${LAST_FOLDER_KEY}:${user.uid}`)
+    if (savedFolderId && folders.some((folder) => folder.id === savedFolderId)) {
+      navigate(`/tools/notes/folder/${savedFolderId}`, { replace: true })
+    }
+  }, [folders, foldersLoading, location.pathname, navigate, user])
+
+  useEffect(() => {
+    if (user && folderId) localStorage.setItem(`${LAST_FOLDER_KEY}:${user.uid}`, folderId)
+  }, [folderId, user])
 
   useEffect(() => {
     localStorage.setItem(NOTE_VIEW_MODE_KEY, viewMode)
@@ -163,7 +182,7 @@ export default function NotesToolLayout() {
                           <button
                             key={o.value}
                             onClick={() => {
-                              setSortBy(o.value as 'updatedAt' | 'createdAt' | 'title')
+                              setSortBy(o.value as 'custom' | 'updatedAt' | 'createdAt' | 'title')
                               setSortOpen(false)
                             }}
                             className={cn(
