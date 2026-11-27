@@ -58,5 +58,5 @@ export interface Note extends Omit<NoteDoc, 'createdAt' | 'updatedAt' | 'deleted
 }
 
 export type NewNoteInput = Partial<
-  Pick<NoteDoc, 'title' | 'content' | 'folderId' | 'tags' | 'type' | 'color' | 'attachments'>
+  Pick<NoteDoc, 'title' | 'content' | 'folderId' | 'tags' | 'type' | 'color' | 'attachments' | 'sharedWith'>
 >

@@ -1,15 +1,17 @@
 import { useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import { ArrowDownUp, ChevronDown, ChevronRight, FileText, Folder, ListTodo, PanelLeftClose, PanelLeftOpen, Plus, Star, Trash2 } from 'lucide-react'
+import { ArrowDownUp, ChevronDown, ChevronRight, FileText, Folder, ListTodo, PanelLeftClose, PanelLeftOpen, Plus, Share2, Star, Trash2, Users, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/shared/hooks/useAuth'
 import { useUiStore } from '@/shared/store/uiStore'
 import { cn } from '@/shared/utils/cn'
 import { confirmDialog, promptDialog } from '@/shared/utils/dialog'
-import { createFolder, deleteFolder, updateFolderPosition } from '@/tools/notes/services/folderService'
+import { createFolder, deleteFolder, updateFolderPosition, updateFolderShare } from '@/tools/notes/services/folderService'
 import { createNote, updateNote } from '@/tools/notes/services/noteService'
 import { useFolderStore } from '@/tools/notes/store/folderStore'
 import { useNoteStore } from '@/tools/notes/store/noteStore'
+import CollaboratorPicker from '@/tools/notes/components/CollaboratorPicker'
+import type { Folder as FolderType } from '@/tools/notes/types/folder'
 
 const links = [
   { to: '/tools/notes', label: 'All Notes', icon: FileText, end: true },
@@ -35,6 +37,8 @@ export default function NotesSidebar({
   const [folderReorderEnabled, setFolderReorderEnabled] = useState(false)
   const [folderDropTargetId, setFolderDropTargetId] = useState<string | null>(null)
   const [collapsedFolderIds, setCollapsedFolderIds] = useState<Set<string>>(new Set())
+  const [sharingFolderId, setSharingFolderId] = useState<string | null>(null)
+  const sharingFolder: FolderType | undefined = folders.find((f) => f.id === sharingFolderId)
 
   async function handleNewNote() {
     if (!user) return
@@ -52,7 +56,7 @@ export default function NotesSidebar({
     const name = await promptDialog('New Folder', 'Enter new folder name:')
     if (!name || !name.trim()) return
     try {
-      const folder = await createFolder(user.uid, name.trim(), parentId)
+      const folder = await createFolder(user.uid, name.trim(), parentId, user.email)
       addFolder(folder)
       if (parentId) {
         setCollapsedFolderIds((ids) => {
@@ -223,10 +227,25 @@ export default function NotesSidebar({
           >
             <Folder size={16} className={cn('shrink-0 text-ink-muted', dragOverFolderId === folder.id && 'text-primary')} />
             <span className="truncate">{folder.name}</span>
+            {((folder.sharedWith?.length ?? 0) > 0 || (user && folder.userId !== user.uid)) && (
+              <Users size={12} className="shrink-0 text-primary" aria-label="Shared folder" />
+            )}
           </NavLink>
           <span className="rounded-full bg-canvas-soft px-1.5 py-0.5 text-xs font-medium text-ink-muted dark:bg-dark-elevated">
             {getFolderNoteCount(folder.id)}
           </span>
+          <button
+            type="button"
+            onClick={() => setSharingFolderId(folder.id)}
+            aria-label={`Share folder ${folder.name}`}
+            title="Chia sẻ thư mục"
+            className={cn(
+              'rounded p-1 transition hover:text-primary',
+              (folder.sharedWith?.length ?? 0) > 0 ? 'text-primary opacity-100' : 'text-ink-muted opacity-0 group-hover:opacity-100',
+            )}
+          >
+            <Share2 size={12} />
+          </button>
           <button
             type="button"
             onClick={() => handleNewFolder(folder.id)}
@@ -335,6 +354,51 @@ export default function NotesSidebar({
         </div>
       </div>
       }
+
+      {sharingFolder && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-fade-in"
+          onClick={() => setSharingFolderId(null)}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className="w-full max-w-md rounded-2xl border border-hairline bg-canvas/95 p-5 shadow-2xl backdrop-blur-xl dark:border-gray-800 dark:bg-dark-elevated/95 animate-scale-in"
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <div className="min-w-0">
+                <h3 className="flex items-center gap-2 truncate font-serif text-lg font-medium text-ink dark:text-gray-100">
+                  <Share2 size={18} className="shrink-0 text-primary" />
+                  Chia sẻ thư mục: {sharingFolder.name}
+                </h3>
+                <p className="text-xs text-ink-muted">
+                  Tất cả ghi chú trong thư mục này sẽ được đồng bộ chia sẻ cho người được chọn.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSharingFolderId(null)}
+                className="rounded-md p-1 text-ink-muted hover:bg-canvas-card dark:hover:bg-dark"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <CollaboratorPicker
+              sharedWith={sharingFolder.sharedWith ?? []}
+              canEdit={sharingFolder.userId === user?.uid}
+              onChange={async (nextEmails) => {
+                try {
+                  await updateFolderShare(sharingFolder.id, nextEmails, user?.email)
+                  toast.success('Đã cập nhật chia sẻ thư mục!')
+                } catch (err) {
+                  toast.error((err as Error).message)
+                }
+              }}
+              emptyText="Thư mục chưa chia sẻ với ai. Chọn từ danh sách tài khoản đã duyệt ở trên."
+            />
+          </div>
+        </div>
+      )}
     </aside>
   )
 }

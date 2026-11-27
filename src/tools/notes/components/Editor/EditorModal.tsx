@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { X, Trash2, Check, Loader2, Save, FolderOpen, Share2, ListChecks, History, RotateCcw, Users, UserPlus, Link2 } from 'lucide-react'
+import { X, Trash2, Check, Loader2, Save, FolderOpen, Share2, ListChecks, History, RotateCcw, Users, Link2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import TiptapEditor, { toChecklistHtml } from '@/tools/notes/components/Editor/TiptapEditor'
 import NoteAttachments, { primeNoteAttachmentPreview } from '@/tools/notes/components/Editor/NoteAttachments'
+import CollaboratorPicker from '@/tools/notes/components/CollaboratorPicker'
 import { getNote, subscribeToNote, updateNote, softDeleteNote, countWords } from '@/tools/notes/services/noteService'
 import { createTask } from '@/tools/notes/tasks/services/taskService'
 import { useNoteStore } from '@/tools/notes/store/noteStore'
@@ -35,7 +36,6 @@ export default function EditorModal() {
   const [isShared, setIsShared] = useState(false)
   const [sharedWith, setSharedWith] = useState<string[]>([])
   const [shareOpen, setShareOpen] = useState(false)
-  const [collabEmail, setCollabEmail] = useState('')
   const [loadingNote, setLoadingNote] = useState(true)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [historyOpen, setHistoryOpen] = useState(false)
@@ -271,42 +271,13 @@ export default function EditorModal() {
     setEditingNoteId(null)
   }
 
-  async function handleAddCollaborator(e: React.FormEvent) {
-    e.preventDefault()
+  async function handleUpdateCollaborators(next: string[]) {
     if (!editingNoteId) return
-    const email = collabEmail.trim().toLowerCase()
-    if (!email || !email.includes('@')) {
-      toast.error('Nhập email hợp lệ để chia sẻ.')
-      return
-    }
-    if (email === user?.email?.toLowerCase()) {
-      toast.error('Không thể tự chia sẻ với chính mình.')
-      return
-    }
-    if (sharedWith.includes(email)) {
-      toast.error('Email này đã được chia sẻ.')
-      return
-    }
-    const next = [...sharedWith, email]
     try {
       await updateNote(editingNoteId, { sharedWith: next })
       setSharedWith(next)
       syncSavedNote({ sharedWith: next })
-      setCollabEmail('')
-      toast.success(`Đã chia sẻ note với ${email}`)
-    } catch (err) {
-      toast.error((err as Error).message)
-    }
-  }
-
-  async function handleRemoveCollaborator(email: string) {
-    if (!editingNoteId) return
-    const next = sharedWith.filter((item) => item !== email)
-    try {
-      await updateNote(editingNoteId, { sharedWith: next })
-      setSharedWith(next)
-      syncSavedNote({ sharedWith: next })
-      toast.success(`Đã thu hồi quyền của ${email}`)
+      toast.success('Đã cập nhật danh sách chia sẻ')
     } catch (err) {
       toast.error((err as Error).message)
     }
@@ -597,44 +568,14 @@ export default function EditorModal() {
               </button>
             </div>
 
-            <form onSubmit={handleAddCollaborator} className="mb-3 flex gap-2">
-              <input
-                type="email"
-                value={collabEmail}
-                onChange={(e) => setCollabEmail(e.target.value)}
-                placeholder="Nhập Gmail người nhận..."
-                className="min-w-0 flex-1 rounded-md border border-hairline bg-canvas px-2.5 py-1.5 text-xs outline-none focus:border-primary dark:border-gray-800 dark:bg-dark dark:text-gray-200"
+            <div className="mb-3">
+              <CollaboratorPicker
+                sharedWith={sharedWith}
+                canEdit={note?.userId === user?.uid}
+                onChange={handleUpdateCollaborators}
+                emptyText="Chưa chia sẻ với tài khoản nào. Chọn tài khoản đã duyệt hoặc nhập email để cùng xem & sửa real-time."
               />
-              <button
-                type="submit"
-                className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover"
-              >
-                <UserPlus size={14} /> Thêm
-              </button>
-            </form>
-
-            {sharedWith.length > 0 ? (
-              <div className="mb-3 max-h-32 space-y-1.5 overflow-y-auto">
-                <p className="text-[11px] font-medium text-ink-muted">Tài khoản có quyền sửa & đồng bộ:</p>
-                {sharedWith.map((email) => (
-                  <div key={email} className="flex items-center justify-between rounded-md border border-hairline bg-canvas-soft px-2.5 py-1.5 text-xs dark:border-gray-800 dark:bg-dark/50">
-                    <span className="truncate font-mono text-ink dark:text-gray-200">{email}</span>
-                    {note?.userId === user?.uid && (
-                      <button
-                        type="button"
-                        onClick={() => void handleRemoveCollaborator(email)}
-                        className="ml-2 text-ink-muted hover:text-error"
-                        title="Thu hồi quyền"
-                      >
-                        <X size={13} />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <p className="mb-3 text-xs text-ink-muted">Chưa chia sẻ với tài khoản nào. Thêm email để cả hai cùng xem và sửa theo thời gian thực.</p>
-            )}
+            </div>
 
             <div className="border-t border-hairline pt-3 dark:border-gray-800">
               <button

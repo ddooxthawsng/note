@@ -8,7 +8,7 @@ interface FolderState {
   error: string | null
   unsub: (() => void) | null
   addFolder: (folder: Folder) => void
-  subscribe: (userId: string) => void
+  subscribe: (userId: string, userEmail?: string | null) => void
   unsubscribe: () => void
 }
 
@@ -22,11 +22,12 @@ export const useFolderStore = create<FolderState>((set, get) => ({
       ? state
       : { folders: [...state.folders, folder] }
   )),
-  subscribe: (userId) => {
+  subscribe: (userId, userEmail) => {
     get().unsub?.()
     set({ loading: true, error: null })
     const unsub = subscribeToFolders(
       userId,
+      userEmail,
       (folders) => set({ folders, loading: false }),
       (err) => set({ error: err.message, loading: false }),
     )

@@ -87,7 +87,7 @@ export default function NotesToolLayout() {
   useEffect(() => {
     if (user) {
       subscribeNotes(user.uid, user.email)
-      subscribeFolders(user.uid)
+      subscribeFolders(user.uid, user.email)
       subscribeTasks(user.uid)
     }
     return () => {
@@ -130,7 +130,16 @@ export default function NotesToolLayout() {
   async function handleNew() {
     if (!user) return
     try {
-      const id = await createNote(user.uid, { folderId })
+      const inheritedShare = currentFolder
+        ? Array.from(
+            new Set(
+              [currentFolder.ownerEmail, ...(currentFolder.sharedWith ?? [])]
+                .map((e) => e?.trim().toLowerCase())
+                .filter((e): e is string => Boolean(e) && e !== user.email?.trim().toLowerCase()),
+            ),
+          )
+        : []
+      const id = await createNote(user.uid, { folderId, sharedWith: inheritedShare })
       setEditingNoteId(id)
       toast.success('New note created!')
     } catch (e) {

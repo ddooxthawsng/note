@@ -180,7 +180,7 @@ export async function createNote(userId: string, input: NewNoteInput = {}) {
     color: input.color ?? null,
     isDeleted: false,
     isShared: false,
-    sharedWith: [],
+    sharedWith: input.sharedWith ?? [],
     lastEditedBy: null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),

@@ -13,7 +13,7 @@ import {
   onAuthStateChanged,
   type User,
 } from 'firebase/auth'
-import { doc, getDoc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore'
+import { collection, doc, getDoc, onSnapshot, query, serverTimestamp, setDoc, where } from 'firebase/firestore'
 import { auth, db } from '@/shared/lib/firebase'
 import type { AppUser } from '@/shared/types/user'
 
@@ -148,6 +148,41 @@ export async function ensureUserProfile(uid: string, email: string | null, displ
       await setDoc(userRef, { role: 'admin', status: 'approved', updatedAt: Date.now() }, { merge: true })
     }
   }
+}
+
+export interface ApprovedUser {
+  uid: string
+  email: string
+  displayName: string
+  role: 'admin' | 'user'
+}
+
+export function subscribeToApprovedUsers(cb: (users: ApprovedUser[]) => void) {
+  if (!db) {
+    cb([])
+    return () => {}
+  }
+  const q = query(collection(db, 'users'), where('status', '==', 'approved'))
+  return onSnapshot(
+    q,
+    (snap) => {
+      const list = snap.docs
+        .map((d) => {
+          const data = d.data() as { email?: string; displayName?: string; role?: 'admin' | 'user' }
+          if (!data.email) return null
+          return {
+            uid: d.id,
+            email: data.email.trim().toLowerCase(),
+            displayName: data.displayName || data.email.split('@')[0] || 'User',
+            role: data.role || 'user',
+          } satisfies ApprovedUser
+        })
+        .filter((u): u is ApprovedUser => Boolean(u))
+        .sort((a, b) => a.displayName.localeCompare(b.displayName))
+      cb(list)
+    },
+    () => cb([]),
+  )
 }
 
 export function getAuthProviderInfo() {
