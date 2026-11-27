@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { AppUser } from '@/shared/types/user'
-import { subscribeToAuth, ensureUserProfile } from '@/shared/services/authService'
+import { subscribeToAuth, ensureUserProfile, consumeRedirectResult } from '@/shared/services/authService'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { db } from '@/shared/lib/firebase'
 
@@ -22,6 +22,7 @@ export const useAuthStore = create<AuthState>((set) => {
     setUser: (user) => set({ user }),
     init: () => {
       set({ initialized: true })
+      void consumeRedirectResult()
       
       const authUnsub = subscribeToAuth(async (authUser) => {
         if (docUnsub) {

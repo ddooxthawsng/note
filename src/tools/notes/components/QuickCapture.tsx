@@ -112,21 +112,21 @@ export default function QuickCapture() {
   if (!showMicControls) return null
 
   return (
-    <div className="fixed bottom-6 right-6 z-40 select-none">
+    <div className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-40 select-none">
       {/* Floating Action Button */}
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
           title="Quick Capture (Voice / Text)"
-          className="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-tr from-primary to-accent-teal text-white shadow-lg transition duration-200 hover:scale-105 active:scale-95 animate-bounce-soft"
+          className="flex h-12 w-12 md:h-14 md:w-14 items-center justify-center rounded-full bg-gradient-to-tr from-primary to-accent-teal text-white shadow-lg transition duration-200 hover:scale-105 active:scale-95 animate-bounce-soft"
         >
-          <Mic size={22} className="animate-pulse" />
+          <Mic size={20} className="animate-pulse" />
         </button>
       )}
 
       {/* Quick Capture Panel */}
       {isOpen && (
-        <div className="absolute bottom-0 right-0 w-[350px] sm:w-[420px] rounded-xl border border-hairline bg-canvas/95 p-5 shadow-2xl backdrop-blur-md dark:border-gray-800 dark:bg-dark-elevated/95 animate-scale-in">
+        <div className="absolute bottom-0 right-0 w-[calc(100vw-2rem)] sm:w-[420px] rounded-2xl border border-hairline bg-canvas/95 p-4 sm:p-5 shadow-2xl backdrop-blur-xl dark:border-gray-800 dark:bg-dark-elevated/95 animate-scale-in">
           {/* Header */}
           <div className="mb-4 flex items-center justify-between">
             <h3 className="font-serif text-lg font-medium text-ink dark:text-gray-100 flex items-center gap-1.5">

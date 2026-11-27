@@ -845,7 +845,61 @@ function LibraryPanel({
         </div>
       </div>
 
-      <div className="overflow-auto">
+      {/* Mobile card list */}
+      <div className="divide-y divide-hairline dark:divide-gray-800 md:hidden">
+        {loading ? (
+          <div className="px-4 py-12 text-center text-ink-muted">
+            <Loader2 size={18} className="mx-auto mb-2 animate-spin text-primary" />
+            Loading library...
+          </div>
+        ) : items.length === 0 ? (
+          <div className="px-4 py-12 text-center text-ink-muted">
+            {error || 'No files in library yet.'}
+          </div>
+        ) : (
+          items.map((item) => (
+            <div key={item.id} onClick={() => onLoad(item.manifest)} className="flex flex-col gap-2.5 p-3.5">
+              <div className="flex items-start gap-2.5">
+                <FileArchive size={18} className="mt-0.5 shrink-0 text-primary" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-ink dark:text-gray-100">{item.manifest.fileName}</p>
+                  <p className="text-xs text-ink-muted">
+                    {formatBytes(item.manifest.size)} · {item.manifest.parts.length} part(s) · {item.source.type === 'note' ? 'Note' : 'Drive'}
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
+                <CustomSelect
+                  size="sm"
+                  value={item.folderId ?? ''}
+                  onChange={(val) => onMove(item.id, val || null)}
+                  title="Move to folder"
+                  options={[
+                    { value: '', label: 'My Drive' },
+                    ...flattenFolders(folders).map(({ folder, depth }) => ({
+                      value: folder.id,
+                      label: `${'— '.repeat(depth)}${folder.name}`,
+                    })),
+                  ]}
+                  className="max-w-[140px]"
+                />
+                <div className="flex items-center gap-1.5">
+                  <IconButton disabled={busy} icon={Download} label="Download" onClick={() => onDownload(item.manifest)} />
+                  <IconButton disabled={busy} icon={Copy} label="Copy manifest" onClick={() => onCopy(item.manifest)} />
+                  <IconButton
+                    disabled={busy || item.source.type === 'note'}
+                    icon={Trash2}
+                    label="Delete"
+                    onClick={() => onDelete(item.id)}
+                  />
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      <div className="hidden overflow-auto md:block">
         <table className="w-full min-w-[760px] text-left text-sm">
           <thead className="bg-canvas-card text-xs uppercase tracking-wider text-ink-muted dark:bg-dark-elevated">
             <tr>

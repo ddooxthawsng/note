@@ -642,7 +642,7 @@ export default function TiptapEditor({ content, noteId, onChange, editable = tru
     <div className="flex flex-col" onKeyDown={handleKeyDown}>
       {editable && (
         <div className="sticky top-0 z-10 mb-3 flex flex-col border-b border-hairline bg-canvas/90 backdrop-blur dark:border-gray-800 dark:bg-dark/90">
-          <div className="flex flex-wrap items-center gap-0.5 py-2">
+          <div className="flex flex-nowrap overflow-x-auto sm:flex-wrap items-center gap-0.5 py-2">
             <ToolbarButton label="Bold" active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()}>
               <Bold size={18} />
             </ToolbarButton>

@@ -23,9 +23,13 @@ const links = [
 export default function NotesSidebar({
   collapsed,
   onToggleCollapsed,
+  mobileOpen = false,
+  onCloseMobile,
 }: {
   collapsed: boolean
   onToggleCollapsed: () => void
+  mobileOpen?: boolean
+  onCloseMobile?: () => void
 }) {
   const { user } = useAuth()
   const setEditingNoteId = useUiStore((s) => s.setEditingNoteId)
@@ -220,6 +224,7 @@ export default function NotesSidebar({
           </button>
           <NavLink
             to={`/tools/notes/folder/${folder.id}`}
+            onClick={() => onCloseMobile?.()}
             className={({ isActive }) => cn(
               'flex min-w-0 flex-1 items-center gap-2 rounded px-1 py-1.5',
               isActive && 'bg-primary/10 font-semibold text-primary dark:bg-primary/20 dark:text-primary',
@@ -270,53 +275,74 @@ export default function NotesSidebar({
   }
 
   return (
-    <aside className={cn(
-      "flex shrink-0 flex-col border-r border-hairline bg-canvas p-3 transition-[width] duration-200 dark:border-gray-800 dark:bg-dark-soft",
-      collapsed ? "w-16" : "w-72",
-    )}>
-      <div className="mb-3 flex items-center justify-between gap-2">
-        {!collapsed && <span className="px-1 text-xs font-semibold uppercase tracking-wider text-ink-muted">Menu</span>}
-        <button
-          type="button"
-          onClick={onToggleCollapsed}
-          aria-label={collapsed ? 'Expand menu' : 'Collapse menu'}
-          className="ml-auto rounded-md p-1.5 text-ink-muted transition hover:bg-canvas-card hover:text-ink dark:hover:bg-dark-elevated dark:hover:text-gray-100"
-        >
-          {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
-        </button>
-      </div>
-
-      <button
-        onClick={handleNewNote}
-        className="mb-4 flex items-center justify-center gap-2 rounded-md bg-primary py-2 text-sm font-medium text-white transition hover:bg-primary-hover active:scale-95"
-        title="New Note"
-      >
-        <Plus size={16} /> {!collapsed && 'New Note'}
-      </button>
-
-      {!collapsed && <div className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-ink-muted">
-        Notes
-      </div>}
-      <nav className="flex flex-col gap-1">
-        {links.map(({ to, label, icon: Icon, end }) => (
-          <NavLink
-            key={to}
-            to={to}
-            end={end}
-            className={({ isActive }) =>
-              cn(
-                'flex items-center gap-3 rounded-md px-3 py-2 text-sm text-ink-body transition hover:bg-canvas-card dark:text-gray-300 dark:hover:bg-dark-elevated',
-                collapsed && 'justify-center px-2',
-                isActive && 'bg-primary/10 font-semibold text-primary dark:bg-primary/20 dark:text-primary',
-              )
-            }
-            title={label}
+    <>
+      {mobileOpen && (
+        <div
+          onClick={() => onCloseMobile?.()}
+          className="fixed inset-0 z-40 bg-black/50 backdrop-blur-xs lg:hidden animate-fade-in"
+        />
+      )}
+      <aside className={cn(
+        "flex shrink-0 flex-col border-r border-hairline bg-canvas/95 p-3 backdrop-blur-xl transition-all duration-200 dark:border-gray-800 dark:bg-dark-soft/95",
+        "fixed inset-y-0 left-0 z-50 w-72 lg:static lg:z-auto",
+        mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0",
+        collapsed ? "lg:w-16" : "lg:w-72",
+      )}>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          {!collapsed && <span className="px-1 text-xs font-semibold uppercase tracking-wider text-ink-muted">Menu</span>}
+          <button
+            type="button"
+            onClick={() => onCloseMobile?.()}
+            aria-label="Close menu"
+            className="ml-auto rounded-md p-1.5 text-ink-muted transition hover:bg-canvas-card hover:text-ink lg:hidden dark:hover:bg-dark-elevated dark:hover:text-gray-100"
           >
-            <Icon size={18} className="shrink-0" />
-            {!collapsed && <span className="truncate">{label}</span>}
-          </NavLink>
-        ))}
-      </nav>
+            <X size={18} />
+          </button>
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            aria-label={collapsed ? 'Expand menu' : 'Collapse menu'}
+            className="ml-auto hidden lg:inline-flex rounded-md p-1.5 text-ink-muted transition hover:bg-canvas-card hover:text-ink dark:hover:bg-dark-elevated dark:hover:text-gray-100"
+          >
+            {collapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+          </button>
+        </div>
+
+        <button
+          onClick={() => {
+            onCloseMobile?.()
+            void handleNewNote()
+          }}
+          className="mb-4 flex items-center justify-center gap-2 rounded-md bg-primary py-2 text-sm font-medium text-white transition hover:bg-primary-hover active:scale-95"
+          title="New Note"
+        >
+          <Plus size={16} /> {!collapsed && 'New Note'}
+        </button>
+
+        {!collapsed && <div className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-ink-muted">
+          Notes
+        </div>}
+        <nav className="flex flex-col gap-1">
+          {links.map(({ to, label, icon: Icon, end }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={end}
+              onClick={() => onCloseMobile?.()}
+              className={({ isActive }) =>
+                cn(
+                  'flex items-center gap-3 rounded-md px-3 py-2 text-sm text-ink-body transition hover:bg-canvas-card dark:text-gray-300 dark:hover:bg-dark-elevated',
+                  collapsed && 'lg:justify-center lg:px-2',
+                  isActive && 'bg-primary/10 font-semibold text-primary dark:bg-primary/20 dark:text-primary',
+                )
+              }
+              title={label}
+            >
+              <Icon size={18} className="shrink-0" />
+              {!collapsed && <span className="truncate">{label}</span>}
+            </NavLink>
+          ))}
+        </nav>
 
       {!collapsed && <div className="mt-6 flex flex-1 flex-col overflow-hidden">
         <div className="mb-2 flex items-center justify-between px-3 text-xs font-semibold uppercase tracking-wider text-ink-muted">
@@ -400,5 +426,6 @@ export default function NotesSidebar({
         </div>
       )}
     </aside>
+    </>
   )
 }

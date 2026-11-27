@@ -14,13 +14,13 @@ export default function AuthShell({
   return (
     <div className="relative flex min-h-[100dvh] items-center justify-center bg-canvas p-4 dark:bg-dark">
       <ThreeBackground />
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-hairline/80 bg-canvas-card/85 p-6 sm:p-8 shadow-2xl backdrop-blur-xl dark:border-gray-800/80 dark:bg-dark-elevated/85">
+      <div className="relative z-10 w-full max-w-md rounded-2xl border border-stone-200/90 bg-white/90 p-6 sm:p-8 shadow-2xl backdrop-blur-xl dark:border-stone-700/80 dark:bg-stone-900/90">
         <div className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-white">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-white shadow-md">
             <NotebookPen size={24} />
           </div>
-          <h1 className="text-2xl font-bold">{title}</h1>
-          <p className="mt-1 text-sm text-gray-500">{subtitle}</p>
+          <h1 className="text-2xl font-bold text-stone-900 dark:text-stone-100">{title}</h1>
+          <p className="mt-1 text-sm text-stone-600 dark:text-stone-400">{subtitle}</p>
         </div>
 
         {!isFirebaseConfigured && (

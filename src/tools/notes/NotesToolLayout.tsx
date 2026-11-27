@@ -1,6 +1,6 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, Plus, Search, SlidersHorizontal } from 'lucide-react'
+import { ChevronDown, Menu, Plus, Search, SlidersHorizontal } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/shared/hooks/useAuth'
 import { useFolderStore } from '@/tools/notes/store/folderStore'
@@ -42,6 +42,7 @@ export default function NotesToolLayout() {
   const unsubscribeTasks = useTaskStore((s) => s.unsubscribe)
   const [sortOpen, setSortOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const restoredFolder = useRef(false)
   const [sidebarDefaultCollapsed, setSidebarDefaultCollapsed] = useState(() => (
     localStorage.getItem(SIDEBAR_DEFAULT_COLLAPSED_KEY) === 'true'
@@ -152,10 +153,20 @@ export default function NotesToolLayout() {
       <NotesSidebar
         collapsed={sidebarCollapsed}
         onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
+        mobileOpen={mobileSidebarOpen}
+        onCloseMobile={() => setMobileSidebarOpen(false)}
       />
       <section className="flex min-w-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden">
         <div className="relative z-30 border-b border-hairline/80 bg-canvas/85 px-3 sm:px-4 py-3 backdrop-blur-xl dark:border-gray-800/80 dark:bg-dark/85">
           <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setMobileSidebarOpen(true)}
+              aria-label="Open folders menu"
+              className="lg:hidden rounded-lg border border-hairline bg-canvas p-2 text-ink-body transition hover:border-primary hover:text-primary dark:border-gray-800 dark:bg-dark-elevated dark:text-gray-200"
+            >
+              <Menu size={18} />
+            </button>
             {showNoteActions && (
               <div className="min-w-[110px] pr-2">
                 <h1 className="font-serif text-xl font-medium leading-tight text-ink dark:text-gray-100">{titleText}</h1>

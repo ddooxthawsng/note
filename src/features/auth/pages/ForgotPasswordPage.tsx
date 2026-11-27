@@ -40,13 +40,13 @@ export default function ForgotPasswordPage() {
       ) : (
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div>
-            <label className="mb-1 block text-sm font-medium">Email</label>
+            <label className="mb-1.5 block text-sm font-semibold text-stone-800 dark:text-stone-200">Email</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               autoComplete="email"
-              className="w-full rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 outline-none focus:border-primary dark:border-gray-700 dark:bg-gray-800"
+              className="w-full rounded-xl border border-stone-300 bg-white px-3.5 py-2.5 text-sm text-stone-900 placeholder:text-stone-400 shadow-sm outline-none transition focus:border-primary focus:ring-2 focus:ring-primary/20 dark:border-stone-600 dark:bg-stone-800 dark:text-white dark:placeholder:text-stone-400"
               placeholder="you@example.com"
             />
           </div>

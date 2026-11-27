@@ -10,9 +10,12 @@ import {
   reauthenticateWithCredential,
   updatePassword,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   onAuthStateChanged,
   type User,
 } from 'firebase/auth'
+import { Capacitor } from '@capacitor/core'
 import { collection, doc, getDoc, onSnapshot, query, serverTimestamp, setDoc, where } from 'firebase/firestore'
 import { auth, db } from '@/shared/lib/firebase'
 import type { AppUser } from '@/shared/types/user'
@@ -49,8 +52,25 @@ export async function signIn(email: string, password: string) {
 
 export async function signInWithGoogle() {
   const a = requireAuth()
-  const cred = await signInWithPopup(a, new GoogleAuthProvider())
+  const provider = new GoogleAuthProvider()
+  provider.setCustomParameters({ prompt: 'select_account' })
+  if (Capacitor.isNativePlatform()) {
+    await signInWithRedirect(a, provider)
+    return null
+  }
+  const cred = await signInWithPopup(a, provider)
   return mapUser(cred.user)
+}
+
+export async function consumeRedirectResult() {
+  if (!auth) return null
+  try {
+    const res = await getRedirectResult(auth)
+    return res ? mapUser(res.user) : null
+  } catch (err) {
+    console.error('Redirect sign-in error:', err)
+    return null
+  }
 }
 
 export async function logOut() {

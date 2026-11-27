@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
-import Navbar from './Navbar'
+import Navbar, { MobileBottomNav } from './Navbar'
 import ThreeBackground from '@/shared/components/ThreeBackground'
 import { useAuth } from '@/shared/hooks/useAuth'
 import { subscribeToSharedGeminiConfig } from '@/shared/services/authService'
@@ -27,6 +27,7 @@ export default function AppLayout() {
         <main className="flex min-h-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden">
           <Outlet />
         </main>
+        <MobileBottomNav />
       </div>
     </div>
   )
