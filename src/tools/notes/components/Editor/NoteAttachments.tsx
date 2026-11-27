@@ -18,6 +18,10 @@ export function primeNoteAttachmentPreview(botToken: string, attachment: NoteAtt
   }
 }
 
+export function getAttachmentPreviewUrl(botToken: string, attachment: NoteAttachment) {
+  return previewUrl(botToken, attachment)
+}
+
 function previewUrl(botToken: string, attachment: NoteAttachment) {
   const key = previewKey(botToken, attachment)
   const cached = previewCache.get(key)

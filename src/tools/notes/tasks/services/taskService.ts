@@ -35,6 +35,7 @@ function fromSnapshot(snap: QueryDocumentSnapshot<DocumentData>): Task {
     title: d.title ?? '',
     isCompleted: d.isCompleted ?? false,
     dueDate: d.dueDate ?? null,
+    priority: d.priority ?? 'medium',
     createdAt: toMillis(d.createdAt),
     updatedAt: toMillis(d.updatedAt),
   }
@@ -66,6 +67,7 @@ export async function createTask(userId: string, input: NewTaskInput) {
     title: input.title,
     isCompleted: false,
     dueDate: input.dueDate ?? null,
+    priority: input.priority ?? 'medium',
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   }
@@ -73,12 +75,19 @@ export async function createTask(userId: string, input: NewTaskInput) {
   return ref.id
 }
 
-export async function toggleTaskCompletion(taskId: string, isCompleted: boolean) {
+export async function updateTask(
+  taskId: string,
+  patch: Partial<Pick<TaskDoc, 'title' | 'dueDate' | 'priority' | 'isCompleted'>>,
+) {
   const database = requireDb()
   await updateDoc(doc(database, COLLECTION, taskId), {
-    isCompleted,
+    ...patch,
     updatedAt: serverTimestamp(),
   })
+}
+
+export async function toggleTaskCompletion(taskId: string, isCompleted: boolean) {
+  await updateTask(taskId, { isCompleted })
 }
 
 export async function deleteTask(taskId: string) {

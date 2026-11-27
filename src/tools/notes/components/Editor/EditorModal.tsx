@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { X, Trash2, Check, Loader2, Save, FolderOpen, Share2, ListChecks, History, RotateCcw } from 'lucide-react'
+import { X, Trash2, Check, Loader2, Save, FolderOpen, Share2, ListChecks, History, RotateCcw, Users, UserPlus, Link2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import TiptapEditor, { toChecklistHtml } from '@/tools/notes/components/Editor/TiptapEditor'
 import NoteAttachments, { primeNoteAttachmentPreview } from '@/tools/notes/components/Editor/NoteAttachments'
-import { getNote, updateNote, softDeleteNote, countWords } from '@/tools/notes/services/noteService'
+import { getNote, subscribeToNote, updateNote, softDeleteNote, countWords } from '@/tools/notes/services/noteService'
 import { createTask } from '@/tools/notes/tasks/services/taskService'
 import { useNoteStore } from '@/tools/notes/store/noteStore'
 import { useFolderStore } from '@/tools/notes/store/folderStore'
@@ -12,6 +12,7 @@ import { useAuth } from '@/shared/hooks/useAuth'
 import type { Note, NoteAttachment, NoteHistoryEntry } from '@/tools/notes/types/note'
 import { cn } from '@/shared/utils/cn'
 import { confirmDialog } from '@/shared/utils/dialog'
+import CustomSelect from '@/shared/components/CustomSelect'
 import { getTelegramSettings } from '@/tools/telegram/telegramApi'
 import { uploadTelegramFile } from '@/tools/telegram/telegramDriveService'
 import { deleteTelegramFile, saveTelegramFile, telegramFileId } from '@/tools/telegram/telegramLibraryService'
@@ -32,17 +33,24 @@ export default function EditorModal() {
   const [folderId, setFolderId] = useState<string | null>(null)
   const [color, setColor] = useState<string | null>(null)
   const [isShared, setIsShared] = useState(false)
+  const [sharedWith, setSharedWith] = useState<string[]>([])
+  const [shareOpen, setShareOpen] = useState(false)
+  const [collabEmail, setCollabEmail] = useState('')
   const [loadingNote, setLoadingNote] = useState(true)
   const [saveState, setSaveState] = useState<SaveState>('idle')
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [selectedHistoryIdx, setSelectedHistoryIdx] = useState(0)
   const [attachments, setAttachments] = useState<NoteAttachment[]>([])
   const [attachmentBusy, setAttachmentBusy] = useState(false)
   const [attachmentProgress, setAttachmentProgress] = useState('')
 
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dirty = useRef(false)
+  const editSeq = useRef(0)
+  const latestRef = useRef({ title: '', content: '', folderId: null as string | null, color: null as string | null, isShared: false })
+  latestRef.current = { title, content, folderId, color, isShared }
 
-  // Load note
+  // Load note + subscribe for real-time collaborative updates
   useEffect(() => {
     if (!editingNoteId) {
       setNote(null)
@@ -50,6 +58,8 @@ export default function EditorModal() {
     }
 
     let active = true
+    let unsub: (() => void) | null = null
+
     async function load() {
       setLoadingNote(true)
       try {
@@ -67,10 +77,29 @@ export default function EditorModal() {
         setFolderId(loaded.folderId ?? null)
         setColor(loaded.color ?? null)
         setIsShared(loaded.isShared ?? false)
+        setSharedWith(loaded.sharedWith ?? [])
         setAttachments(loaded.attachments ?? [])
         setHistoryOpen(false)
+        setShareOpen(false)
+        setSelectedHistoryIdx(0)
         dirty.current = false
+        editSeq.current = 0
         setSaveState('idle')
+
+        unsub = subscribeToNote(editingNoteId!, (remote) => {
+          if (!active || !remote) return
+          setNote(remote)
+          setAttachments(remote.attachments ?? [])
+          setSharedWith(remote.sharedWith ?? [])
+          // Only sync remote text if local user does not have unsaved edits in flight
+          if (!dirty.current) {
+            setTitle(remote.title)
+            setContent(remote.content)
+            setFolderId(remote.folderId ?? null)
+            setColor(remote.color ?? null)
+            setIsShared(remote.isShared ?? false)
+          }
+        })
       } catch (err) {
         toast.error((err as Error).message)
         setEditingNoteId(null)
@@ -81,22 +110,35 @@ export default function EditorModal() {
     load()
     return () => {
       active = false
+      unsub?.()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingNoteId])
 
-  // Debounced auto-save on change
+  // Debounced auto-save on change (race-safe: never overwrites newer typing)
   useEffect(() => {
     if (loadingNote || !editingNoteId || !dirty.current) return
     setSaveState('saving')
     if (timer.current) clearTimeout(timer.current)
+    const seqAtSchedule = editSeq.current
     timer.current = setTimeout(async () => {
+      const snap = latestRef.current
+      const seqAtSave = editSeq.current
       try {
-        const savedTitle = title || 'Untitled Note'
-        await updateNote(editingNoteId!, { title: savedTitle, content, folderId, color, isShared })
-        syncSavedNote({ title: savedTitle, content, folderId, color, isShared })
-        setSaveState('saved')
-        dirty.current = false
+        const savedTitle = snap.title || 'Untitled Note'
+        await updateNote(editingNoteId!, {
+          title: savedTitle,
+          content: snap.content,
+          folderId: snap.folderId,
+          color: snap.color,
+          isShared: snap.isShared,
+          lastEditedBy: user?.email ?? user?.displayName ?? null,
+        })
+        syncSavedNote({ title: savedTitle, content: snap.content, folderId: snap.folderId, color: snap.color, isShared: snap.isShared })
+        if (editSeq.current === seqAtSave && editSeq.current === seqAtSchedule) {
+          dirty.current = false
+          setSaveState('saved')
+        }
       } catch (e) {
         setSaveState('idle')
         toast.error((e as Error).message)
@@ -110,6 +152,7 @@ export default function EditorModal() {
 
   function markDirty() {
     dirty.current = true
+    editSeq.current += 1
     setSaveState('idle')
   }
 
@@ -140,7 +183,7 @@ export default function EditorModal() {
         ...patch,
         wordCount: typeof patch.content === 'string' ? countWords(patch.content) : prev.wordCount,
         updatedAt: Date.now(),
-        history: changed ? [noteHistoryEntry(prev), ...(prev.history ?? [])].slice(0, 5) : prev.history,
+        history: changed ? [noteHistoryEntry(prev), ...(prev.history ?? [])].slice(0, 30) : prev.history,
       }
     })
   }
@@ -228,6 +271,47 @@ export default function EditorModal() {
     setEditingNoteId(null)
   }
 
+  async function handleAddCollaborator(e: React.FormEvent) {
+    e.preventDefault()
+    if (!editingNoteId) return
+    const email = collabEmail.trim().toLowerCase()
+    if (!email || !email.includes('@')) {
+      toast.error('Nhập email hợp lệ để chia sẻ.')
+      return
+    }
+    if (email === user?.email?.toLowerCase()) {
+      toast.error('Không thể tự chia sẻ với chính mình.')
+      return
+    }
+    if (sharedWith.includes(email)) {
+      toast.error('Email này đã được chia sẻ.')
+      return
+    }
+    const next = [...sharedWith, email]
+    try {
+      await updateNote(editingNoteId, { sharedWith: next })
+      setSharedWith(next)
+      syncSavedNote({ sharedWith: next })
+      setCollabEmail('')
+      toast.success(`Đã chia sẻ note với ${email}`)
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }
+
+  async function handleRemoveCollaborator(email: string) {
+    if (!editingNoteId) return
+    const next = sharedWith.filter((item) => item !== email)
+    try {
+      await updateNote(editingNoteId, { sharedWith: next })
+      setSharedWith(next)
+      syncSavedNote({ sharedWith: next })
+      toast.success(`Đã thu hồi quyền của ${email}`)
+    } catch (err) {
+      toast.error((err as Error).message)
+    }
+  }
+
   async function handleToggleShare() {
     if (!editingNoteId) return
     const nextShared = !isShared
@@ -258,16 +342,17 @@ export default function EditorModal() {
     }
   }
 
-  async function handleUploadFiles(files: File[]) {
-    if (!user || !editingNoteId || attachmentBusy) return
+  async function handleUploadFiles(files: File[]): Promise<NoteAttachment[]> {
+    if (!user || !editingNoteId || attachmentBusy) return []
     const { botToken, chatId } = getTelegramSettings()
     if (!botToken || !chatId) {
       toast.error('Configure Bot token and Chat ID in Telegram Drive first.')
-      return
+      return []
     }
 
     setAttachmentBusy(true)
     let next = [...attachments]
+    const uploaded: NoteAttachment[] = []
     try {
       for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
         const file = files[fileIndex]
@@ -280,6 +365,7 @@ export default function EditorModal() {
         const id = await telegramFileId(user.uid, manifest)
         const attachment = { id, manifest }
         primeNoteAttachmentPreview(botToken, attachment, file)
+        uploaded.push(attachment)
         next = [...next, attachment]
         await updateNote(editingNoteId, { attachments: next })
         setAttachments(next)
@@ -291,8 +377,10 @@ export default function EditorModal() {
         }
       }
       toast.success(`${files.length} attachment(s) uploaded to Telegram`)
+      return uploaded
     } catch (error) {
       toast.error((error as Error).message)
+      return uploaded
     } finally {
       setAttachmentBusy(false)
       setAttachmentProgress('')
@@ -366,17 +454,17 @@ export default function EditorModal() {
   if (!editingNoteId) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4">
       {/* Backdrop */}
       <div
         onClick={handleClose}
-        className="absolute inset-0 bg-black/40 backdrop-blur-[2px] transition-opacity animate-fade-in"
+        className="absolute inset-0 bg-black/45 backdrop-blur-[3px] transition-opacity animate-fade-in"
       />
 
       {/* Modal Card */}
       <div
         className={cn(
-          "relative z-10 flex h-[88vh] w-full max-w-5xl flex-col rounded-2xl border transition-all animate-scale-in shadow-2xl",
+          "relative z-10 flex h-[100dvh] sm:h-[88vh] w-full max-w-5xl flex-col rounded-none sm:rounded-2xl border transition-all animate-scale-in shadow-2xl",
           color === 'red' ? 'bg-[#fdf2f0] border-[#fad2cf] dark:bg-[#291615] dark:border-[#5f2e2a]' :
           color === 'amber' ? 'bg-[#fefaf0] border-[#feebb7] dark:bg-[#2a2015] dark:border-[#624a2f]' :
           color === 'teal' ? 'bg-[#f0faf2] border-[#ceead6] dark:bg-[#15291a] dark:border-[#2c4e38]' :
@@ -387,7 +475,7 @@ export default function EditorModal() {
       >
         
         {/* Modal Header */}
-        <div className="flex items-center justify-between border-b border-hairline px-6 py-4 dark:border-gray-800">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-hairline px-3 py-3 sm:px-6 sm:py-4 dark:border-gray-800">
           <div className="flex items-center gap-2">
             <button
               onClick={handleClose}
@@ -396,27 +484,31 @@ export default function EditorModal() {
             >
               <X size={18} />
             </button>
+            {note?.lastEditedBy && (
+              <span className="hidden md:inline-flex items-center rounded-full bg-canvas-soft px-2.5 py-0.5 text-[11px] text-ink-muted dark:bg-dark-elevated">
+                Edited by {note.lastEditedBy}
+              </span>
+            )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-3">
             {/* Folder selection dropdown */}
             <div className="flex items-center gap-1.5 text-sm text-ink-muted">
               <FolderOpen size={16} />
-              <select
+              <CustomSelect
+                size="sm"
+                ariaLabel="Folder"
                 value={folderId || ''}
-                onChange={(e) => {
+                onChange={(val) => {
                   markDirty()
-                  setFolderId(e.target.value || null)
+                  setFolderId(val || null)
                 }}
-                className="rounded-md border border-hairline bg-canvas-soft px-2.5 py-1.5 outline-none focus:border-primary dark:border-gray-800 dark:bg-dark-elevated dark:text-gray-300 text-xs font-medium"
-              >
-                <option value="">No Folder</option>
-                {folders.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.name}
-                  </option>
-                ))}
-              </select>
+                options={[
+                  { value: '', label: 'No Folder' },
+                  ...folders.map((f) => ({ value: f.id, label: f.name })),
+                ]}
+                className="min-w-[120px]"
+              />
             </div>
 
             {/* Save Button */}
@@ -465,18 +557,22 @@ export default function EditorModal() {
               <ListChecks size={18} />
             </button>
 
-            {/* Share Button */}
+            {/* Share & Collaborate Button */}
             <button
-              onClick={handleToggleShare}
-              title={isShared ? "Copy link or stop sharing" : "Share note"}
+              onClick={() => {
+                setShareOpen((open) => !open)
+                setHistoryOpen(false)
+              }}
+              title="Share & collaborate"
               className={cn(
-                "rounded-md p-2 transition-colors animate-fade-in",
-                isShared
+                "inline-flex items-center gap-1 rounded-md p-2 text-xs font-medium transition-colors animate-fade-in",
+                isShared || sharedWith.length > 0
                   ? "text-success bg-success/15 hover:bg-success/20"
                   : "text-ink-muted hover:bg-canvas-card dark:hover:bg-dark-elevated"
               )}
             >
               <Share2 size={18} />
+              {sharedWith.length > 0 && <span className="hidden sm:inline">{sharedWith.length}</span>}
             </button>
 
             {/* Delete Button */}
@@ -490,38 +586,161 @@ export default function EditorModal() {
           </div>
         </div>
 
-        {historyOpen && (
-          <div className="absolute right-6 top-[4.5rem] z-20 w-80 rounded-md border border-hairline bg-canvas p-2 shadow-xl dark:border-gray-800 dark:bg-dark-elevated">
-            <div className="mb-2 flex items-center justify-between px-1">
-              <span className="text-xs font-semibold text-ink dark:text-gray-100">History ({history.length}/5)</span>
-              <button
-                onClick={() => setHistoryOpen(false)}
-                className="rounded p-1 text-ink-muted hover:bg-canvas-card dark:hover:bg-dark"
-              >
-                <X size={14} />
+        {shareOpen && (
+          <div className="absolute right-3 sm:right-6 top-16 z-30 w-[calc(100vw-1.5rem)] max-w-sm rounded-xl border border-hairline bg-canvas/95 p-4 shadow-2xl backdrop-blur-md dark:border-gray-800 dark:bg-dark-elevated/95 animate-scale-in">
+            <div className="mb-3 flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-sm font-semibold text-ink dark:text-gray-100">
+                <Users size={16} className="text-primary" /> Chia sẻ & Cộng tác
+              </h3>
+              <button onClick={() => setShareOpen(false)} className="rounded p-1 text-ink-muted hover:bg-canvas-card dark:hover:bg-dark">
+                <X size={15} />
               </button>
             </div>
-            <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
-              {history.map((item, index) => (
-                <div key={`${item.savedAt}-${index}`} className="rounded-md border border-hairline bg-canvas-soft p-2 dark:border-gray-800 dark:bg-dark/40">
-                  <div className="mb-1 flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="truncate text-xs font-semibold text-ink dark:text-gray-100">{item.title || 'Untitled Note'}</p>
-                      <p className="text-[11px] text-ink-muted">{new Date(item.savedAt).toLocaleString()}</p>
-                    </div>
-                    <button
-                      onClick={() => handleRestoreHistory(item)}
-                      className="rounded-md p-1.5 text-primary hover:bg-primary/10"
-                      title="Restore"
-                    >
-                      <RotateCcw size={14} />
-                    </button>
+
+            <form onSubmit={handleAddCollaborator} className="mb-3 flex gap-2">
+              <input
+                type="email"
+                value={collabEmail}
+                onChange={(e) => setCollabEmail(e.target.value)}
+                placeholder="Nhập Gmail người nhận..."
+                className="min-w-0 flex-1 rounded-md border border-hairline bg-canvas px-2.5 py-1.5 text-xs outline-none focus:border-primary dark:border-gray-800 dark:bg-dark dark:text-gray-200"
+              />
+              <button
+                type="submit"
+                className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary-hover"
+              >
+                <UserPlus size={14} /> Thêm
+              </button>
+            </form>
+
+            {sharedWith.length > 0 ? (
+              <div className="mb-3 max-h-32 space-y-1.5 overflow-y-auto">
+                <p className="text-[11px] font-medium text-ink-muted">Tài khoản có quyền sửa & đồng bộ:</p>
+                {sharedWith.map((email) => (
+                  <div key={email} className="flex items-center justify-between rounded-md border border-hairline bg-canvas-soft px-2.5 py-1.5 text-xs dark:border-gray-800 dark:bg-dark/50">
+                    <span className="truncate font-mono text-ink dark:text-gray-200">{email}</span>
+                    {note?.userId === user?.uid && (
+                      <button
+                        type="button"
+                        onClick={() => void handleRemoveCollaborator(email)}
+                        className="ml-2 text-ink-muted hover:text-error"
+                        title="Thu hồi quyền"
+                      >
+                        <X size={13} />
+                      </button>
+                    )}
                   </div>
-                  <p className="line-clamp-2 text-xs text-ink-muted">
-                    {item.content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() || 'Empty'}
-                  </p>
+                ))}
+              </div>
+            ) : (
+              <p className="mb-3 text-xs text-ink-muted">Chưa chia sẻ với tài khoản nào. Thêm email để cả hai cùng xem và sửa theo thời gian thực.</p>
+            )}
+
+            <div className="border-t border-hairline pt-3 dark:border-gray-800">
+              <button
+                type="button"
+                onClick={handleToggleShare}
+                className={cn(
+                  "flex w-full items-center justify-center gap-2 rounded-md px-3 py-2 text-xs font-semibold transition",
+                  isShared
+                    ? "bg-success/15 text-success hover:bg-success/20"
+                    : "border border-hairline bg-canvas-soft text-ink-body hover:border-primary hover:text-primary dark:border-gray-800 dark:bg-dark dark:text-gray-300"
+                )}
+              >
+                <Link2 size={14} />
+                {isShared ? 'Đang bật Link công khai (Bấm để tắt)' : 'Tạo Link xem công khai'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {historyOpen && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-3 sm:p-6 backdrop-blur-sm animate-fade-in">
+            <div className="flex h-[85vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-hairline bg-canvas shadow-2xl dark:border-gray-800 dark:bg-dark-elevated animate-scale-in">
+              <div className="flex items-center justify-between border-b border-hairline px-5 py-3.5 dark:border-gray-800">
+                <div className="flex items-center gap-2">
+                  <History size={18} className="text-primary" />
+                  <h3 className="font-serif text-lg font-medium text-ink dark:text-gray-100">
+                    Lịch sử phiên bản ({history.length}/30)
+                  </h3>
                 </div>
-              ))}
+                <button
+                  onClick={() => setHistoryOpen(false)}
+                  className="rounded-md p-1.5 text-ink-muted hover:bg-canvas-card dark:hover:bg-dark"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+                {/* Version list */}
+                <div className="max-h-56 w-full overflow-y-auto border-b border-hairline bg-canvas-soft/60 p-2.5 dark:border-gray-800 dark:bg-dark/40 md:max-h-none md:w-72 md:border-b-0 md:border-r">
+                  <div className="space-y-1.5">
+                    {history.map((item, index) => {
+                      const active = selectedHistoryIdx === index
+                      return (
+                        <button
+                          key={`${item.savedAt}-${index}`}
+                          type="button"
+                          onClick={() => setSelectedHistoryIdx(index)}
+                          className={cn(
+                            'w-full rounded-lg border p-2.5 text-left transition',
+                            active
+                              ? 'border-primary bg-primary/10 dark:bg-primary/15'
+                              : 'border-hairline bg-canvas hover:border-primary/40 dark:border-gray-800 dark:bg-dark-elevated',
+                          )}
+                        >
+                          <div className="mb-1 flex items-center justify-between gap-2">
+                            <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+                              v{history.length - index}
+                            </span>
+                            <span className="text-[11px] text-ink-muted">
+                              {new Date(item.savedAt).toLocaleString()}
+                            </span>
+                          </div>
+                          <p className="truncate text-xs font-semibold text-ink dark:text-gray-100">
+                            {item.title || 'Untitled Note'}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-ink-muted">
+                            {item.wordCount} từ
+                          </p>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                {/* Selected version preview */}
+                <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-6">
+                  {history[selectedHistoryIdx] ? (
+                    <>
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-hairline pb-3 dark:border-gray-800">
+                        <div className="min-w-0">
+                          <h4 className="truncate font-serif text-xl font-medium text-ink dark:text-gray-100">
+                            {history[selectedHistoryIdx].title || 'Untitled Note'}
+                          </h4>
+                          <p className="text-xs text-ink-muted">
+                            Lưu lúc {new Date(history[selectedHistoryIdx].savedAt).toLocaleString()} · {history[selectedHistoryIdx].wordCount} từ
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleRestoreHistory(history[selectedHistoryIdx])}
+                          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-primary-hover active:scale-95"
+                        >
+                          <RotateCcw size={14} /> Khôi phục phiên bản này
+                        </button>
+                      </div>
+                      <div
+                        className="prose dark:prose-invert max-w-none flex-1 overflow-y-auto rounded-xl border border-hairline bg-canvas-soft/40 p-4 text-sm dark:border-gray-800 dark:bg-dark/30"
+                        dangerouslySetInnerHTML={{
+                          __html: history[selectedHistoryIdx].content || '<p class="italic text-ink-muted">Trống</p>',
+                        }}
+                      />
+                    </>
+                  ) : null}
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -593,9 +812,10 @@ export default function EditorModal() {
                   onDelete={(attachment) => void handleDeleteAttachment(attachment)}
                 />
                 <TiptapEditor
-                  content={note?.content ?? ''}
+                  noteId={editingNoteId}
+                  content={content}
                   uploading={attachmentBusy}
-                  onUploadFiles={(files) => void handleUploadFiles(files)}
+                  onUploadFiles={(files) => handleUploadFiles(files)}
                   onChange={(html) => {
                     markDirty()
                     setContent(html)

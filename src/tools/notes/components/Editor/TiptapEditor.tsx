@@ -30,12 +30,15 @@ import {
   Highlighter,
   ListChecks,
   Paperclip,
+  ClipboardCopy,
 } from 'lucide-react'
 import { cn } from '@/shared/utils/cn'
 import toast from 'react-hot-toast'
 import { useUiStore } from '@/shared/store/uiStore'
 import { useSpeechToText } from '@/shared/hooks/useSpeechToText'
 import { askGeminiToFormat, askGeminiToSummarize } from '@/shared/utils/ai'
+import { CopyBlockNode, TelegramMediaNode } from '@/tools/notes/components/Editor/EditorNodes'
+import type { NoteAttachment } from '@/tools/notes/types/note'
 
 const highlightColors = ['red', 'amber', 'teal', 'blue', 'purple'] as const
 
@@ -108,9 +111,10 @@ export function toChecklistHtml(lines: string[]) {
 
 interface Props {
   content: string
+  noteId?: string | null
   onChange: (html: string) => void
   editable?: boolean
-  onUploadFiles?: (files: File[]) => void
+  onUploadFiles?: (files: File[]) => Promise<NoteAttachment[] | void> | void
   uploading?: boolean
 }
 
@@ -145,7 +149,32 @@ function ToolbarButton({
   )
 }
 
-export default function TiptapEditor({ content, onChange, editable = true, onUploadFiles, uploading = false }: Props) {
+function extractClipboardFiles(clipboardData: DataTransfer | null): File[] {
+  if (!clipboardData) return []
+  const seen = new Set<string>()
+  const collected: File[] = []
+  const addFile = (f: File | null) => {
+    if (!f) return
+    const key = `${f.name}:${f.size}:${f.type}`
+    if (seen.has(key)) return
+    seen.add(key)
+    // Ensure pasted screenshots/images have a clean filename
+    if (!f.name || f.name === 'image.png') {
+      const ext = f.type.split('/')[1] || 'png'
+      const named = new File([f], `pasted-${Date.now()}.${ext}`, { type: f.type || 'image/png' })
+      collected.push(named)
+    } else {
+      collected.push(f)
+    }
+  }
+  Array.from(clipboardData.files ?? []).forEach(addFile)
+  Array.from(clipboardData.items ?? []).forEach((item) => {
+    if (item.kind === 'file') addFile(item.getAsFile())
+  })
+  return collected
+}
+
+export default function TiptapEditor({ content, noteId, onChange, editable = true, onUploadFiles, uploading = false }: Props) {
   const showMicControls = useUiStore((s) => s.showMicControls)
   const [searchOpen, setSearchOpen] = useState(false)
   const [findText, setFindText] = useState('')
@@ -155,6 +184,8 @@ export default function TiptapEditor({ content, onChange, editable = true, onUpl
   const fileInput = useRef<HTMLInputElement>(null)
   const uploadFiles = useRef(onUploadFiles)
   uploadFiles.current = onUploadFiles
+  const lastEmittedHtml = useRef(content)
+  const lastNoteId = useRef(noteId)
 
   interface HistoryItem {
     id: string
@@ -179,32 +210,60 @@ export default function TiptapEditor({ content, onChange, editable = true, onUpl
       StarterKit,
       HighlightMark,
       ChecklistItem,
+      TelegramMediaNode,
+      CopyBlockNode,
       Placeholder.configure({ placeholder: 'Start writing…' }),
     ],
     content,
     editable,
-    onUpdate: ({ editor }) => onChange(editor.getHTML()),
+    onUpdate: ({ editor }) => {
+      const html = editor.getHTML()
+      lastEmittedHtml.current = html
+      onChange(html)
+    },
     onSelectionUpdate: () => setSelectionUpdateToken((t) => t + 1),
     editorProps: {
       attributes: {
         class: 'prose max-w-none focus:outline-none',
       },
-      handleDrop: (_view, event) => {
+      handleDrop: (view, event) => {
         const files = Array.from(event.dataTransfer?.files ?? [])
         if (!files.length || !uploadFiles.current) return false
         event.preventDefault()
-        uploadFiles.current(files)
+        const coords = view.posAtCoords({ left: event.clientX, top: event.clientY })
+        void insertUploadedMediaAt(files, coords?.pos ?? view.state.selection.from)
         return true
       },
-      handlePaste: (_view, event) => {
-        const files = Array.from(event.clipboardData?.files ?? [])
+      handlePaste: (view, event) => {
+        const files = extractClipboardFiles(event.clipboardData)
         if (!files.length || !uploadFiles.current) return false
         event.preventDefault()
-        uploadFiles.current(files)
+        void insertUploadedMediaAt(files, view.state.selection.from)
         return true
       },
     },
   })
+
+  async function insertUploadedMediaAt(files: File[], pos?: number) {
+    if (!uploadFiles.current) return
+    const result = await uploadFiles.current(files)
+    if (!editor || !Array.isArray(result) || result.length === 0) return
+    const nodes = result.map((att) => ({
+      type: 'telegramMedia',
+      attrs: {
+        attachmentId: att.id,
+        fileName: att.manifest.fileName,
+        mimeType: att.manifest.mimeType,
+        size: att.manifest.size,
+        manifestJson: JSON.stringify(att.manifest),
+      },
+    }))
+    const targetPos = typeof pos === 'number' ? Math.min(pos, editor.state.doc.content.size) : editor.state.selection.from
+    editor.chain().focus().insertContentAt(targetPos, nodes).run()
+    const html = editor.getHTML()
+    lastEmittedHtml.current = html
+    onChange(html)
+  }
 
   // Speech to Text
   const {
@@ -217,13 +276,18 @@ export default function TiptapEditor({ content, onChange, editable = true, onUpl
     }
   })
 
-  // Sync external content changes (e.g. note switch) without clobbering typing.
+  // Sync external content changes (e.g. note switch, history restore, remote collaboration) without clobbering active typing.
   useEffect(() => {
-    if (editor && content !== editor.getHTML()) {
+    if (!editor) return
+    const switchedNote = noteId !== lastNoteId.current
+    lastNoteId.current = noteId
+    if (!switchedNote && content === lastEmittedHtml.current) return
+    if (content !== editor.getHTML()) {
+      lastEmittedHtml.current = content
       editor.commands.setContent(content, false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [content, editor])
+  }, [content, noteId, editor])
 
   // Auto-focus find input when search bar opens
   useEffect(() => {
@@ -519,6 +583,21 @@ export default function TiptapEditor({ content, onChange, editable = true, onUpl
     onChange(editor.getHTML())
   }
 
+  function handleCopyBlock() {
+    if (!editor) return
+    const { from, to } = editor.state.selection
+    const selectedText = editor.state.doc.textBetween(from, to, '\n').trim()
+    const contentNode = selectedText
+      ? { type: 'copyBlock', content: [{ type: 'text', text: selectedText }] }
+      : { type: 'copyBlock' }
+    if (from !== to) {
+      editor.chain().focus().insertContentAt({ from, to }, contentNode).run()
+    } else {
+      editor.chain().focus().insertContent(contentNode).run()
+    }
+    onChange(editor.getHTML())
+  }
+
   function handleKeyDown(e: React.KeyboardEvent) {
     if (!editor) return
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
@@ -576,6 +655,9 @@ export default function TiptapEditor({ content, onChange, editable = true, onUpl
             <ToolbarButton label="Checklist" active={editor.isActive('checklistItem')} onClick={handleChecklist}>
               <ListChecks size={18} />
             </ToolbarButton>
+            <ToolbarButton label="Khối Copy Nhanh" active={editor.isActive('copyBlock')} onClick={handleCopyBlock}>
+              <ClipboardCopy size={18} />
+            </ToolbarButton>
             {onUploadFiles && (
               <>
                 <ToolbarButton
@@ -593,7 +675,7 @@ export default function TiptapEditor({ content, onChange, editable = true, onUpl
                   className="sr-only"
                   onChange={(event) => {
                     const files = Array.from(event.currentTarget.files ?? [])
-                    if (files.length) onUploadFiles(files)
+                    if (files.length) void insertUploadedMediaAt(files)
                     event.currentTarget.value = ''
                   }}
                 />
@@ -992,7 +1074,7 @@ export default function TiptapEditor({ content, onChange, editable = true, onUpl
               </button>
             </div>
 
-            <div className="flex flex-1 gap-4 overflow-hidden min-h-0 mb-5">
+            <div className="flex flex-1 flex-col sm:flex-row gap-4 overflow-hidden min-h-0 mb-5">
               {/* Before Column */}
               <div className="flex flex-1 flex-col rounded-xl border border-hairline bg-canvas-soft p-4 dark:border-gray-855 dark:bg-dark/40 overflow-hidden">
                 <span className="text-[10px] font-bold text-ink-muted uppercase tracking-wider mb-2 select-none">Before (Original)</span>

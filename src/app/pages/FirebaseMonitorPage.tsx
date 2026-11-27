@@ -1,26 +1,15 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   collection,
   getCountFromServer,
   getDocs,
-  query,
-  where,
   type CollectionReference,
   type DocumentData,
 } from 'firebase/firestore'
-import { AlertTriangle, BarChart3, Cloud, Database, ExternalLink, FileArchive, HardDrive, Loader2, RefreshCw } from 'lucide-react'
+import { Cloud, Database, ExternalLink, FileArchive, HardDrive, Loader2, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { db } from '@/shared/lib/firebase'
 import { formatBytes, type TelegramManifest } from '@/tools/telegram/telegramCore'
-
-interface QuotaDoc {
-  id: string
-  uid?: string
-  period?: string
-  used?: number
-  limit?: number
-  resetDate?: string
-}
 
 interface Metrics {
   users?: number
@@ -31,26 +20,16 @@ interface Metrics {
   telegramBytes: number
   telegramParts: number
   telegramMetadataBytes: number
-  quotaDocs: QuotaDoc[]
   errors: Record<string, string>
 }
 
 const projectId = import.meta.env.VITE_FIREBASE_PROJECT_ID
 const hostingUrl = (import.meta.env.VITE_FIREBASE_API_BASE_URL || 'https://thangdo.web.app').replace(/\/$/, '')
 const consoleUrl = `https://console.firebase.google.com/project/${projectId}/usage/details`
-const period = new Date().toISOString().slice(0, 7)
-const quotaCollection = 'toolQuota'
 
 export default function FirebaseMonitorPage() {
   const [metrics, setMetrics] = useState<Metrics | null>(null)
   const [loading, setLoading] = useState(true)
-
-  const quota = useMemo(() => {
-    const docs = metrics?.quotaDocs ?? []
-    const used = docs.reduce((sum, item) => sum + Number(item.used ?? 0), 0)
-    const limit = docs.reduce((sum, item) => sum + Number(item.limit ?? 100), 0)
-    return { docs, used, limit, remaining: Math.max(0, limit - used) }
-  }, [metrics])
 
   async function loadMetrics() {
     if (!db) {
@@ -60,12 +39,11 @@ export default function FirebaseMonitorPage() {
 
     setLoading(true)
     try {
-      const [users, notes, folders, tasks, quotaSnap, telegramSnap] = await Promise.all([
+      const [users, notes, folders, tasks, telegramSnap] = await Promise.all([
         safeCount('users'),
         safeCount('notes'),
         safeCount('folders'),
         safeCount('tasks'),
-        getDocs(query(collection(db, quotaCollection), where('period', '==', period))).catch((error) => error as Error),
         // ponytail: exact byte totals scan tiny metadata docs; add an aggregate only when this collection becomes large.
         getDocs(collection(db, 'telegramFiles')).catch((error) => error as Error),
       ])
@@ -74,14 +52,7 @@ export default function FirebaseMonitorPage() {
       for (const [key, value] of Object.entries({ users, notes, folders, tasks })) {
         if (value instanceof Error) errors[key] = value.message
       }
-      if (quotaSnap instanceof Error) errors.quota = quotaSnap.message
       if (telegramSnap instanceof Error) errors.telegram = telegramSnap.message
-
-      const quotaDocs = quotaSnap instanceof Error
-        ? []
-        : quotaSnap.docs
-          .map((doc) => ({ id: doc.id, ...doc.data() }) as QuotaDoc)
-          .sort((a, b) => Number(b.used ?? 0) - Number(a.used ?? 0))
 
       const telegramDocs = telegramSnap instanceof Error ? [] : telegramSnap.docs.map((item) => item.data() as { manifest?: TelegramManifest })
 
@@ -94,7 +65,6 @@ export default function FirebaseMonitorPage() {
         telegramBytes: telegramDocs.reduce((sum, item) => sum + Number(item.manifest?.size ?? 0), 0),
         telegramParts: telegramDocs.reduce((sum, item) => sum + Number(item.manifest?.parts.length ?? 0), 0),
         telegramMetadataBytes: telegramDocs.reduce((sum, item) => sum + new TextEncoder().encode(JSON.stringify(item)).length, 0),
-        quotaDocs,
         errors,
       })
 
@@ -177,57 +147,6 @@ export default function FirebaseMonitorPage() {
             <QuotaCard label="Firestore outbound" value="10 GiB / month" />
             <QuotaCard label="Hosting storage" value="10 GB" />
             <QuotaCard label="Hosting transfer" value="10 GB / month" />
-          </div>
-        </section>
-
-        <section className="rounded-md border border-hairline bg-canvas p-4 dark:border-gray-800 dark:bg-dark-soft">
-          <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="font-sans text-base font-semibold text-ink dark:text-gray-100">MarkItDown quota</h2>
-              <p className="text-sm text-ink-muted">Period {period}</p>
-            </div>
-            <span className="inline-flex items-center gap-2 rounded-md bg-canvas-card px-3 py-2 text-sm font-semibold text-ink dark:bg-dark-elevated dark:text-gray-100">
-              <BarChart3 size={16} className="text-primary" />
-              {quota.used} / {quota.limit || 0}
-            </span>
-          </div>
-
-          {quota.remaining <= 10 && quota.limit > 0 && (
-            <p className="mb-4 flex items-center gap-2 rounded-md bg-warning/10 px-3 py-2 text-sm font-medium text-warning">
-              <AlertTriangle size={16} />
-              Quota nearly exhausted.
-            </p>
-          )}
-
-          <div className="overflow-hidden rounded-md border border-hairline dark:border-gray-800">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-canvas-card text-xs uppercase tracking-wider text-ink-muted dark:bg-dark-elevated">
-                <tr>
-                  <th className="px-4 py-3">User</th>
-                  <th className="px-4 py-3">Used</th>
-                  <th className="px-4 py-3">Limit</th>
-                  <th className="px-4 py-3">Reset</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-hairline dark:divide-gray-800">
-                {loading ? (
-                  <tr><td className="px-4 py-8 text-center text-ink-muted" colSpan={4}>Loading...</td></tr>
-                ) : metrics?.errors.quota ? (
-                  <tr><td className="px-4 py-8 text-center text-error" colSpan={4}>{metrics.errors.quota}</td></tr>
-                ) : quota.docs.length === 0 ? (
-                  <tr><td className="px-4 py-8 text-center text-ink-muted" colSpan={4}>No conversion usage this month.</td></tr>
-                ) : (
-                  quota.docs.map((item) => (
-                    <tr key={item.id}>
-                      <td className="px-4 py-3 font-mono text-xs">{item.uid ?? item.id}</td>
-                      <td className="px-4 py-3 font-semibold">{item.used ?? 0}</td>
-                      <td className="px-4 py-3">{item.limit ?? 100}</td>
-                      <td className="px-4 py-3">{item.resetDate ?? '-'}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
           </div>
         </section>
       </div>

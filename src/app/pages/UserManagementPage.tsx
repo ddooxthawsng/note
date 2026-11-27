@@ -4,6 +4,7 @@ import { db } from '@/shared/lib/firebase'
 import { Check, X, Shield, User, Trash2, Loader2, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { confirmDialog } from '@/shared/utils/dialog'
+import { PRIMARY_ADMIN_EMAIL } from '@/shared/services/authService'
 
 interface UserProfileDoc {
   uid: string
@@ -110,31 +111,39 @@ export default function UserManagementPage() {
             <p>No users registered yet.</p>
           </div>
         ) : (
-          <div className="min-w-[800px] overflow-x-auto">
-            <table className="w-full border-collapse text-left text-sm text-ink-body dark:text-gray-300">
+          <div className="w-full overflow-x-auto">
+            <table className="w-full min-w-[640px] border-collapse text-left text-sm text-ink-body dark:text-gray-300">
               <thead>
                 <tr className="border-b border-hairline bg-canvas-soft/50 dark:border-gray-800 dark:bg-dark/20 text-xs font-semibold uppercase tracking-wider text-ink-muted">
-                  <th className="px-6 py-4">User</th>
-                  <th className="px-6 py-4">Email</th>
-                  <th className="px-6 py-4">Role</th>
-                  <th className="px-6 py-4">Status</th>
-                  <th className="px-6 py-4 text-right">Actions</th>
+                  <th className="px-4 sm:px-6 py-4">User</th>
+                  <th className="px-4 sm:px-6 py-4">Email</th>
+                  <th className="px-4 sm:px-6 py-4">Role</th>
+                  <th className="px-4 sm:px-6 py-4">Status</th>
+                  <th className="px-4 sm:px-6 py-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-hairline dark:divide-gray-800">
-                {users.map((u) => (
+                {users.map((u) => {
+                  const isPrimaryAdmin = u.email?.toLowerCase() === PRIMARY_ADMIN_EMAIL
+                  return (
                   <tr
                     key={u.uid}
                     className="hover:bg-canvas-soft/30 dark:hover:bg-dark/10 transition-colors"
                   >
-                    <td className="px-6 py-4 font-semibold text-ink dark:text-gray-100">
+                    <td className="px-4 sm:px-6 py-4 font-semibold text-ink dark:text-gray-100">
                       {u.displayName || 'Unnamed User'}
+                      {isPrimaryAdmin && (
+                        <span className="ml-2 rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold text-primary">
+                          Root Admin
+                        </span>
+                      )}
                     </td>
-                    <td className="px-6 py-4 font-mono text-xs">{u.email}</td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 sm:px-6 py-4 font-mono text-xs">{u.email}</td>
+                    <td className="px-4 sm:px-6 py-4">
                       <button
+                        disabled={isPrimaryAdmin}
                         onClick={() => handleToggleRole(u.uid, u.role)}
-                        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium border border-hairline transition hover:border-primary/50 hover:bg-primary/5 dark:border-gray-800"
+                        className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium border border-hairline transition hover:border-primary/50 hover:bg-primary/5 disabled:opacity-60 disabled:cursor-not-allowed dark:border-gray-800"
                       >
                         {u.role === 'admin' ? (
                           <>
@@ -149,7 +158,7 @@ export default function UserManagementPage() {
                         )}
                       </button>
                     </td>
-                    <td className="px-6 py-4">
+                    <td className="px-4 sm:px-6 py-4">
                       <span
                         className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${
                           u.status === 'approved'
@@ -162,7 +171,7 @@ export default function UserManagementPage() {
                         {u.status}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-right">
+                    <td className="px-4 sm:px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
                         {u.status !== 'approved' && (
                           <button
@@ -173,7 +182,7 @@ export default function UserManagementPage() {
                             <Check size={16} />
                           </button>
                         )}
-                        {u.status !== 'rejected' && (
+                        {!isPrimaryAdmin && u.status !== 'rejected' && (
                           <button
                             onClick={() => handleUpdateStatus(u.uid, 'rejected')}
                             title="Reject"
@@ -182,18 +191,22 @@ export default function UserManagementPage() {
                             <X size={16} />
                           </button>
                         )}
-                        <span className="h-4 w-px bg-hairline dark:bg-gray-800" />
-                        <button
-                          onClick={() => handleDeleteUser(u.uid, u.email)}
-                          title="Delete Profile"
-                          className="rounded p-1.5 text-ink-muted hover:bg-error/10 hover:text-error transition active:scale-90"
-                        >
-                          <Trash2 size={16} />
-                        </button>
+                        {!isPrimaryAdmin && (
+                          <>
+                            <span className="h-4 w-px bg-hairline dark:bg-gray-800" />
+                            <button
+                              onClick={() => handleDeleteUser(u.uid, u.email)}
+                              title="Delete Profile"
+                              className="rounded p-1.5 text-ink-muted hover:bg-error/10 hover:text-error transition active:scale-90"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
-                ))}
+                )})}
               </tbody>
             </table>
           </div>

@@ -1,5 +1,6 @@
 import { NotebookPen } from 'lucide-react'
 import { isFirebaseConfigured } from '@/shared/lib/firebase'
+import ThreeBackground from '@/shared/components/ThreeBackground'
 
 export default function AuthShell({
   title,
@@ -11,8 +12,9 @@ export default function AuthShell({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary/10 via-gray-50 to-secondary/10 p-4 dark:from-gray-900 dark:via-gray-950 dark:to-gray-900">
-      <div className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-8 shadow-xl dark:border-gray-800 dark:bg-gray-900">
+    <div className="relative flex min-h-[100dvh] items-center justify-center bg-canvas p-4 dark:bg-dark">
+      <ThreeBackground />
+      <div className="relative z-10 w-full max-w-md rounded-2xl border border-hairline/80 bg-canvas-card/85 p-6 sm:p-8 shadow-2xl backdrop-blur-xl dark:border-gray-800/80 dark:bg-dark-elevated/85">
         <div className="mb-6 text-center">
           <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-white">
             <NotebookPen size={24} />

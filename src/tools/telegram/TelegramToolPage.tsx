@@ -27,9 +27,12 @@ import {
 } from 'lucide-react'
 import { cn } from '@/shared/utils/cn'
 import { useAuth } from '@/shared/hooks/useAuth'
+import CustomSelect from '@/shared/components/CustomSelect'
 import {
   discoverTelegramChat,
   formatBytes,
+  saveSharedTelegramConfig,
+  subscribeToSharedTelegramConfig,
   TelegramBrowserDownloadError,
   telegramChatKey,
   telegramTokenKey,
@@ -79,6 +82,28 @@ export default function TelegramToolPage() {
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<SortKey>('newest')
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const configSyncTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isAdmin = user?.role === 'admin'
+
+  useEffect(() => {
+    if (!user) return
+    return subscribeToSharedTelegramConfig((cfg) => {
+      if (cfg.botToken) setBotToken(cfg.botToken)
+      if (cfg.chatId) setChatId(cfg.chatId)
+    })
+  }, [user])
+
+  function updateSharedConfig(nextToken: string, nextChatId: string, immediate = false) {
+    if (!isAdmin) return
+    if (configSyncTimer.current) clearTimeout(configSyncTimer.current)
+    const run = () => {
+      void saveSharedTelegramConfig(nextToken, nextChatId, user?.email || user?.uid).catch((err: Error) => {
+        toast.error(`Sync Telegram settings failed: ${err.message}`)
+      })
+    }
+    if (immediate) run()
+    else configSyncTimer.current = setTimeout(run, 500)
+  }
 
   useEffect(() => {
     if (!user) {
@@ -255,7 +280,8 @@ export default function TelegramToolPage() {
       setDiscovery(result)
       if (result.chat) {
         setChatId(result.chat.id)
-        toast.success(`Chat ID detected: ${result.chat.id}`)
+        updateSharedConfig(botToken, result.chat.id, true)
+        toast.success(`Chat ID detected & shared: ${result.chat.id}`)
       } else if (result.webhookActive) {
         toast.error('This bot has an active webhook. Enter Chat ID manually or disable the webhook first.')
       } else {
@@ -266,6 +292,12 @@ export default function TelegramToolPage() {
       toast.error((error as Error).message)
     } finally {
       setDiscovering(false)
+    }
+  }
+
+  async function handleUploadFiles(files: File[]) {
+    for (const item of files) {
+      await handleUpload(item)
     }
   }
 
@@ -347,10 +379,15 @@ export default function TelegramToolPage() {
       setProgress(`Merged: ${parsed.fileName}`)
       toast.success('Downloaded and merged')
     } catch (error) {
-      if (error instanceof TelegramBrowserDownloadError && parsed.parts.length === 1) {
-        openRemoteDownload(error.url, parsed.fileName || 'telegram-download.bin')
-        setProgress(`Browser download started: ${parsed.fileName}`)
-        toast.success('Download opened in browser')
+      if (error instanceof TelegramBrowserDownloadError) {
+        if (parsed.parts.length === 1) {
+          openRemoteDownload(error.url, parsed.fileName || 'telegram-download.bin')
+          setProgress(`Browser download started: ${parsed.fileName}`)
+          toast.success('Download opened in browser')
+          return
+        }
+        setProgress('')
+        toast.error('Trình duyệt chặn tải nhiều phần trực tiếp từ Telegram (CORS). Hãy thử tải từng phần trong khung chat Telegram hoặc tắt chặn cross-origin.')
         return
       }
       setProgress('')
@@ -395,18 +432,18 @@ export default function TelegramToolPage() {
   const locationName = selectedFolderId === 'all' ? 'All files' : selectedFolder?.name ?? 'My Drive'
 
   return (
-    <div className="w-full flex-1 overflow-y-auto p-3 animate-fade-in-up md:p-6">
-      <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div className="flex w-full flex-1 flex-col overflow-y-auto lg:overflow-hidden p-3 animate-fade-in-up md:p-5">
+      <div className="flex w-full flex-1 min-h-0 flex-col gap-4">
+        <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-sans font-semibold text-ink dark:text-gray-100">Telegram Drive</h1>
             <p className="text-sm text-ink-muted">{storageStats.files} files · {formatBytes(storageStats.bytes)} stored in Telegram</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <button type="button" onClick={() => void createFolder()} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-hairline bg-canvas px-3 py-2 text-sm font-semibold text-ink-body hover:border-primary hover:text-primary dark:border-gray-800 dark:bg-dark-soft dark:text-gray-200">
+            <button type="button" onClick={() => void createFolder()} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-hairline bg-canvas/80 backdrop-blur-md px-3 py-2 text-sm font-semibold text-ink-body hover:border-primary hover:text-primary dark:border-gray-800 dark:bg-dark-soft/80 dark:text-gray-200">
               <FolderPlus size={17} /> New folder
             </button>
-            <button type="button" onClick={() => setSettingsOpen(true)} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-hairline bg-canvas px-3 py-2 text-sm font-semibold text-ink-body hover:border-primary hover:text-primary dark:border-gray-800 dark:bg-dark-soft dark:text-gray-200">
+            <button type="button" onClick={() => setSettingsOpen(true)} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-hairline bg-canvas/80 backdrop-blur-md px-3 py-2 text-sm font-semibold text-ink-body hover:border-primary hover:text-primary dark:border-gray-800 dark:bg-dark-soft/80 dark:text-gray-200">
               <Settings size={17} /> Settings
             </button>
             <button type="button" disabled={busy} onClick={() => fileInputRef.current?.click()} className="inline-flex min-h-10 items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover disabled:opacity-50">
@@ -415,17 +452,18 @@ export default function TelegramToolPage() {
             <input
               ref={fileInputRef}
               type="file"
+              multiple
               className="sr-only"
               onChange={(event) => {
-                const nextFile = event.currentTarget.files?.item(0)
-                if (nextFile) void handleUpload(nextFile)
+                const files = Array.from(event.currentTarget.files ?? [])
+                if (files.length) void handleUploadFiles(files)
                 event.currentTarget.value = ''
               }}
             />
           </div>
         </div>
 
-        <div className="grid min-h-[620px] overflow-hidden rounded-lg border border-hairline bg-canvas shadow-sm dark:border-gray-800 dark:bg-dark-soft md:grid-cols-[230px_minmax(0,1fr)]">
+        <div className="grid flex-1 min-h-0 overflow-hidden rounded-xl border border-hairline/80 bg-canvas/80 backdrop-blur-xl shadow-sm dark:border-gray-800/80 dark:bg-dark-soft/80 md:grid-cols-[240px_minmax(0,1fr)]">
           <DriveSidebar
             files={library}
             folders={folders}
@@ -450,10 +488,10 @@ export default function TelegramToolPage() {
             onDrop={(event) => {
               event.preventDefault()
               setDraggingFiles(false)
-              const dropped = event.dataTransfer.files.item(0)
-              if (dropped) void handleUpload(dropped)
+              const dropped = Array.from(event.dataTransfer.files ?? [])
+              if (dropped.length) void handleUploadFiles(dropped)
             }}
-            className="relative min-w-0 p-3 md:p-5"
+            className="relative flex min-h-0 min-w-0 flex-col overflow-y-auto p-3 md:p-5"
           >
             {draggingFiles && (
               <div className="absolute inset-3 z-20 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10 backdrop-blur-sm md:inset-5">
@@ -547,12 +585,20 @@ export default function TelegramToolPage() {
             <SettingsCard
               botToken={botToken}
               chatId={chatId}
-              onBotToken={setBotToken}
-              onChatId={setChatId}
+              isAdmin={isAdmin}
+              onBotToken={(next) => {
+                setBotToken(next)
+                updateSharedConfig(next, chatId)
+              }}
+              onChatId={(next) => {
+                setChatId(next)
+                updateSharedConfig(botToken, next)
+              }}
               onClear={() => {
                 setBotToken('')
                 setChatId('')
                 setDiscovery(null)
+                updateSharedConfig('', '', true)
               }}
               discovering={discovering}
               discovery={discovery}
@@ -784,15 +830,17 @@ function LibraryPanel({
                 className="w-full rounded-md border border-hairline bg-canvas-soft py-2 pl-8 pr-3 text-sm text-ink outline-none focus:border-primary dark:border-gray-800 dark:bg-dark dark:text-gray-100"
               />
             </label>
-            <select
+            <CustomSelect
               value={sortBy}
-              onChange={(event) => onSort(event.target.value as SortKey)}
-              className="rounded-md border border-hairline bg-canvas-soft px-3 py-2 text-sm text-ink outline-none focus:border-primary dark:border-gray-800 dark:bg-dark dark:text-gray-100"
-            >
-              <option value="newest">Newest</option>
-              <option value="name">Name</option>
-              <option value="size">Size</option>
-            </select>
+              onChange={(val) => onSort(val as SortKey)}
+              ariaLabel="Sort files"
+              options={[
+                { value: 'newest', label: 'Newest' },
+                { value: 'name', label: 'Name' },
+                { value: 'size', label: 'Size' },
+              ]}
+              className="min-w-[110px]"
+            />
           </div>
         </div>
       </div>
@@ -848,15 +896,20 @@ function LibraryPanel({
                   <td className="px-4 py-3 text-ink-muted">{new Date(item.savedAt ?? item.manifest.createdAt).toLocaleString()}</td>
                   <td className="px-4 py-3">
                     <div className="flex justify-end gap-2" onClick={(event) => event.stopPropagation()}>
-                      <select
+                      <CustomSelect
+                        size="sm"
                         value={item.folderId ?? ''}
-                        onChange={(event) => onMove(item.id, event.target.value || null)}
+                        onChange={(val) => onMove(item.id, val || null)}
                         title="Move to folder"
-                        className="max-w-32 rounded-md border border-hairline bg-canvas px-2 py-1 text-xs text-ink-body dark:border-gray-800 dark:bg-dark dark:text-gray-300"
-                      >
-                        <option value="">My Drive</option>
-                        {flattenFolders(folders).map(({ folder, depth }) => <option key={folder.id} value={folder.id}>{'— '.repeat(depth)}{folder.name}</option>)}
-                      </select>
+                        options={[
+                          { value: '', label: 'My Drive' },
+                          ...flattenFolders(folders).map(({ folder, depth }) => ({
+                            value: folder.id,
+                            label: `${'— '.repeat(depth)}${folder.name}`,
+                          })),
+                        ]}
+                        className="max-w-36"
+                      />
                       <IconButton disabled={busy} icon={Download} label="Download and merge" onClick={() => onDownload(item.manifest)} />
                       <IconButton disabled={busy} icon={Copy} label="Copy manifest" onClick={() => onCopy(item.manifest)} />
                       <IconButton disabled={busy} icon={FileJson} label="Export manifest" onClick={() => onExport(item.manifest)} />
@@ -929,6 +982,7 @@ function SettingsCard({
   chatId,
   discovering,
   discovery,
+  isAdmin,
   onBotToken,
   onChatId,
   onClear,
@@ -938,6 +992,7 @@ function SettingsCard({
   chatId: string
   discovering: boolean
   discovery: TelegramDiscoveryResult | null
+  isAdmin: boolean
   onBotToken: (value: string) => void
   onChatId: (value: string) => void
   onClear: () => void
@@ -949,38 +1004,52 @@ function SettingsCard({
         <div className="flex items-center gap-2 text-sm font-semibold text-ink dark:text-gray-100">
           <KeyRound size={17} className="text-primary" />
           Bot Settings
+          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">Shared · Admin</span>
         </div>
-        <button onClick={onClear} className="rounded-md p-1.5 text-ink-muted hover:bg-canvas-card hover:text-error dark:hover:bg-dark" title="Clear settings">
-          <Trash2 size={15} />
-        </button>
-      </div>
-      <div className="space-y-3">
-        <LabeledInput label="Bot token" type="password" value={botToken} onChange={onBotToken} placeholder="123456:ABC..." icon={KeyRound} />
-        <LabeledInput label="Chat ID" value={chatId} onChange={onChatId} placeholder="@channel or -100..." icon={MessageSquare} />
-        <button
-          type="button"
-          disabled={!botToken.trim() || discovering}
-          onClick={onDiscover}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-hairline bg-canvas-soft px-3 py-2 text-sm font-semibold text-ink-body transition hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-800 dark:bg-dark dark:text-gray-200"
-        >
-          <RefreshCw size={15} className={discovering ? 'animate-spin' : ''} />
-          Auto-detect Chat ID
-        </button>
-        {discovery?.startUrl && !discovery.chat && (
-          <a
-            href={discovery.startUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-2 text-xs font-medium text-primary hover:underline"
-          >
-            <ExternalLink size={13} />
-            Open @{discovery.bot.username ?? discovery.bot.firstName}, send /start, then detect again
-          </a>
-        )}
-        {discovery?.webhookActive && !discovery.chat && (
-          <p className="text-xs text-warning">Auto-detect is unavailable while this bot uses a webhook. Manual Chat ID still works.</p>
+        {isAdmin && (
+          <button onClick={onClear} className="rounded-md p-1.5 text-ink-muted hover:bg-canvas-card hover:text-error dark:hover:bg-dark" title="Clear settings">
+            <Trash2 size={15} />
+          </button>
         )}
       </div>
+      {isAdmin ? (
+        <>
+          <p className="mb-3 text-xs text-ink-muted">Admin nhập 1 lần — tự động đồng bộ và dùng chung cho tất cả tài khoản.</p>
+          <div className="space-y-3">
+            <LabeledInput label="Bot token" type="password" value={botToken} onChange={onBotToken} placeholder="123456:ABC..." icon={KeyRound} />
+            <LabeledInput label="Chat ID" value={chatId} onChange={onChatId} placeholder="@channel or -100..." icon={MessageSquare} />
+            <button
+              type="button"
+              disabled={!botToken.trim() || discovering}
+              onClick={onDiscover}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-md border border-hairline bg-canvas-soft px-3 py-2 text-sm font-semibold text-ink-body transition hover:border-primary hover:text-primary disabled:cursor-not-allowed disabled:opacity-40 dark:border-gray-800 dark:bg-dark dark:text-gray-200"
+            >
+              <RefreshCw size={15} className={discovering ? 'animate-spin' : ''} />
+              Auto-detect Chat ID
+            </button>
+            {discovery?.startUrl && !discovery.chat && (
+              <a
+                href={discovery.startUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="flex items-center gap-2 text-xs font-medium text-primary hover:underline"
+              >
+                <ExternalLink size={13} />
+                Open @{discovery.bot.username ?? discovery.bot.firstName}, send /start, then detect again
+              </a>
+            )}
+            {discovery?.webhookActive && !discovery.chat && (
+              <p className="text-xs text-warning">Auto-detect is unavailable while this bot uses a webhook. Manual Chat ID still works.</p>
+            )}
+          </div>
+        </>
+      ) : (
+        <div className="rounded-lg border border-hairline bg-canvas-soft/60 px-3.5 py-3 text-xs text-ink-muted dark:border-gray-800 dark:bg-dark/40">
+          {botToken && chatId
+            ? '✅ Phiên Telegram Drive đã được Admin cấu hình và đồng bộ dùng chung cho tài khoản của bạn.'
+            : '⏳ Chưa có cấu hình Telegram Drive. Vui lòng liên hệ Admin để cấu hình.'}
+        </div>
+      )}
     </section>
   )
 }

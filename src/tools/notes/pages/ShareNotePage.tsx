@@ -4,6 +4,7 @@ import { doc, getDoc } from 'firebase/firestore'
 import { db } from '@/shared/lib/firebase'
 import type { Note, NoteDoc } from '@/tools/notes/types/note'
 import { NotebookPen, Loader2, FileWarning } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { cn } from '@/shared/utils/cn'
 
 const cardColors: Record<string, string> = {
@@ -82,6 +83,14 @@ export default function ShareNotePage() {
   }, [note])
 
   function handleSharedContentClick(e: React.MouseEvent<HTMLDivElement>) {
+    const copyBlock = (e.target as HTMLElement).closest('[data-type="copy-block"]') as HTMLElement | null
+    if (copyBlock) {
+      const text = copyBlock.textContent?.trim() ?? ''
+      if (text) {
+        void navigator.clipboard.writeText(text).then(() => toast.success('Đã copy nhanh!'))
+      }
+      return
+    }
     const input = (e.target as HTMLElement).closest('input[type="checkbox"]') as HTMLInputElement | null
     if (!input || !note || !contentRef.current) return
     const item = input.closest('[data-type="check-item"]')

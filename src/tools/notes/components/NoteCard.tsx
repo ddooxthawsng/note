@@ -1,10 +1,11 @@
-import { Paperclip, Pin, Star, Trash2 } from 'lucide-react'
+import { Paperclip, Pin, Star, Trash2, Users } from 'lucide-react'
 import { formatDistanceToNow } from 'date-fns'
 import toast from 'react-hot-toast'
 import type { Note } from '@/tools/notes/types/note'
 import { cn } from '@/shared/utils/cn'
 import { softDeleteNote, togglePin, toggleFavorite } from '@/tools/notes/services/noteService'
 import { useUiStore } from '@/shared/store/uiStore'
+import { useAuth } from '@/shared/hooks/useAuth'
 import { useState } from 'react'
 
 export type NoteViewMode = 'normal' | 'title'
@@ -34,10 +35,12 @@ export default function NoteCard({
   dropAxis?: 'horizontal' | 'vertical'
   onNoteDrop: (draggedId: string, targetId: string, position: DropPosition) => Promise<void>
 }) {
+  const { user } = useAuth()
   const setEditingNoteId = useUiStore((s) => s.setEditingNoteId)
   const setContextMenu = useUiStore((s) => s.setContextMenu)
   const [dropPosition, setDropPosition] = useState<DropPosition | null>(null)
   const titleOnly = viewMode === 'title'
+  const isCollaborating = (note.sharedWith?.length ?? 0) > 0 || (user && note.userId !== user.uid)
 
   async function withCatch(fn: () => Promise<void>) {
     try {
@@ -183,6 +186,12 @@ export default function NoteCard({
                 : 'just now'}
             </span>
             <span className="flex items-center gap-2">
+              {isCollaborating && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary" title="Shared note">
+                  <Users size={11} />
+                  {user && note.userId !== user.uid ? 'Shared' : note.sharedWith?.length}
+                </span>
+              )}
               {!!note.attachments?.length && <span className="flex items-center gap-1"><Paperclip size={12} />{note.attachments.length}</span>}
               <span>{note.wordCount} words</span>
             </span>

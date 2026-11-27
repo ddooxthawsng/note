@@ -1,3 +1,6 @@
+import { doc, onSnapshot, serverTimestamp, setDoc } from 'firebase/firestore'
+import { db } from '@/shared/lib/firebase'
+
 export {
   createManifest,
   formatBytes,
@@ -40,6 +43,52 @@ export function getTelegramSettings() {
     botToken: localStorage.getItem(telegramTokenKey) ?? '',
     chatId: localStorage.getItem(telegramChatKey) ?? '',
   }
+}
+
+export function setLocalTelegramSettings(botToken: string, chatId: string) {
+  if (botToken) localStorage.setItem(telegramTokenKey, botToken)
+  else localStorage.removeItem(telegramTokenKey)
+  if (chatId) localStorage.setItem(telegramChatKey, chatId)
+  else localStorage.removeItem(telegramChatKey)
+}
+
+export async function saveSharedTelegramConfig(botToken: string, chatId: string, updatedBy?: string | null) {
+  const cleanToken = botToken.trim()
+  const cleanChatId = chatId.trim()
+  setLocalTelegramSettings(cleanToken, cleanChatId)
+  if (!db) return
+  await setDoc(
+    doc(db, 'appConfig', 'telegram'),
+    {
+      botToken: cleanToken,
+      chatId: cleanChatId,
+      updatedBy: updatedBy ?? null,
+      updatedAt: serverTimestamp(),
+    },
+    { merge: true },
+  )
+}
+
+export function subscribeToSharedTelegramConfig(
+  cb?: (config: { botToken: string; chatId: string }) => void,
+) {
+  if (!db) return () => {}
+  return onSnapshot(
+    doc(db, 'appConfig', 'telegram'),
+    (snap) => {
+      if (!snap.exists()) return
+      const data = snap.data() as { botToken?: string; chatId?: string }
+      const botToken = typeof data.botToken === 'string' ? data.botToken : ''
+      const chatId = typeof data.chatId === 'string' ? data.chatId : ''
+      if (botToken || chatId) {
+        setLocalTelegramSettings(botToken, chatId)
+      }
+      cb?.({ botToken, chatId })
+    },
+    () => {
+      // Ignore permission errors before user is approved
+    },
+  )
 }
 
 interface TelegramResponse<T> {

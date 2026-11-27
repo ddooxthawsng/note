@@ -13,7 +13,7 @@ interface NoteState {
   unsub: (() => void) | null
   setSearch: (search: string) => void
   setSortBy: (sortBy: SortKey) => void
-  subscribe: (userId: string) => void
+  subscribe: (userId: string, userEmail?: string | null) => void
   unsubscribe: () => void
 }
 
@@ -26,11 +26,12 @@ export const useNoteStore = create<NoteState>((set, get) => ({
   unsub: null,
   setSearch: (search) => set({ search }),
   setSortBy: (sortBy) => set({ sortBy }),
-  subscribe: (userId) => {
+  subscribe: (userId, userEmail) => {
     get().unsub?.()
     set({ loading: true, error: null })
     const unsub = subscribeToNotes(
       userId,
+      userEmail,
       (notes) => set({ notes, loading: false }),
       (err) => set({ error: err.message, loading: false }),
     )

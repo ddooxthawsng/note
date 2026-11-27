@@ -35,6 +35,8 @@ export interface NoteDoc {
   color: string | null
   isDeleted: boolean
   isShared?: boolean
+  sharedWith?: string[]
+  lastEditedBy?: string | null
   createdAt: Timestamp | null
   updatedAt: Timestamp | null
   deletedAt: Timestamp | null
@@ -51,6 +53,8 @@ export interface Note extends Omit<NoteDoc, 'createdAt' | 'updatedAt' | 'deleted
   deletedAt: number | null
   order?: number | null
   isShared?: boolean
+  sharedWith?: string[]
+  lastEditedBy?: string | null
 }
 
 export type NewNoteInput = Partial<

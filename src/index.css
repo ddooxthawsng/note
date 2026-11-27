@@ -60,6 +60,10 @@ h1, h2, h3, h4, h5, h6 {
   @apply bg-transparent p-0;
 }
 
+.copy-block {
+  @apply relative my-2 rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 font-mono text-sm;
+}
+
 /* Custom CSS Keyframe Animations */
 @keyframes fadeInUp {
   from {

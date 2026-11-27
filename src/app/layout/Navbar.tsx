@@ -1,5 +1,5 @@
 import { NavLink, useNavigate } from 'react-router-dom'
-import { BarChart3, FileText, LayoutDashboard, LogOut, Moon, NotebookPen, Send, Settings, Sun, Users } from 'lucide-react'
+import { BarChart3, LayoutDashboard, LogOut, Moon, NotebookPen, Send, Settings, Smartphone, Sun, Users } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useAuth } from '@/shared/hooks/useAuth'
 import { useUiStore } from '@/shared/store/uiStore'
@@ -9,8 +9,8 @@ import { logOut } from '@/shared/services/authService'
 const links = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/tools/notes', label: 'Notes', icon: NotebookPen, end: false },
-  { to: '/tools/markitdown', label: 'MarkItDown', icon: FileText, end: false },
   { to: '/tools/telegram', label: 'Telegram', icon: Send, end: false },
+  { to: '/download', label: 'Android', icon: Smartphone, end: false },
   { to: '/settings', label: 'Settings', icon: Settings, end: false },
 ]
 
@@ -30,7 +30,7 @@ export default function Navbar() {
   }
 
   return (
-    <header className="flex h-14 items-center gap-3 border-b border-hairline bg-canvas px-3 dark:border-gray-800 dark:bg-dark">
+    <header className="flex h-14 shrink-0 items-center gap-2 sm:gap-3 border-b border-hairline/80 bg-canvas/80 px-3 backdrop-blur-xl dark:border-gray-800/80 dark:bg-dark/80">
       <div className="flex items-center gap-2 font-serif text-lg font-normal text-ink dark:text-gray-100">
         <LayoutDashboard size={20} className="text-primary" />
         <span className="hidden font-serif font-medium tracking-tight sm:inline">Tool</span>

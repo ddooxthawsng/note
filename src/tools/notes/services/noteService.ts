@@ -19,7 +19,7 @@ import type { Note, NoteDoc, NewNoteInput, NoteHistoryEntry } from '@/tools/note
 
 const COLLECTION = 'notes'
 // ponytail: inline history; move to subcollection if Firestore 1MiB doc limit bites.
-const MAX_HISTORY = 5
+const MAX_HISTORY = 30
 const HISTORY_FIELDS = ['title', 'content', 'type'] as const
 
 function requireDb() {
@@ -47,6 +47,8 @@ function fromSnapshot(snap: QueryDocumentSnapshot<DocumentData>): Note {
     color: d.color ?? null,
     isDeleted: d.isDeleted ?? false,
     isShared: d.isShared ?? false,
+    sharedWith: d.sharedWith ?? [],
+    lastEditedBy: d.lastEditedBy ?? null,
     createdAt: toMillis(d.createdAt),
     updatedAt: toMillis(d.updatedAt),
     deletedAt: toMillis(d.deletedAt),
@@ -85,21 +87,79 @@ export function countWords(html: string): number {
   return text.split(/\s+/).length
 }
 
-/** Live subscription to a user's non-deleted notes, newest first. */
+/** Live subscription to a user's own non-deleted notes + notes shared with them. */
 export function subscribeToNotes(
   userId: string,
+  userEmail: string | null | undefined,
   cb: (notes: Note[]) => void,
   onError?: (err: Error) => void,
 ) {
   const database = requireDb()
-  const q = query(
+  let ownNotes: Note[] = []
+  let sharedNotes: Note[] = []
+
+  const emit = () => {
+    const merged = new Map<string, Note>()
+    for (const n of ownNotes) merged.set(n.id, n)
+    for (const n of sharedNotes) merged.set(n.id, n)
+    cb(Array.from(merged.values()))
+  }
+
+  const ownQuery = query(
     collection(database, COLLECTION),
     where('userId', '==', userId),
     where('isDeleted', '==', false),
   )
+  const unsubOwn = onSnapshot(
+    ownQuery,
+    (snap) => {
+      ownNotes = snap.docs.map(fromSnapshot)
+      emit()
+    },
+    (err) => onError?.(err),
+  )
+
+  const normalizedEmail = userEmail?.trim().toLowerCase()
+  if (!normalizedEmail) {
+    return unsubOwn
+  }
+
+  const sharedQuery = query(
+    collection(database, COLLECTION),
+    where('sharedWith', 'array-contains', normalizedEmail),
+    where('isDeleted', '==', false),
+  )
+  const unsubShared = onSnapshot(
+    sharedQuery,
+    (snap) => {
+      sharedNotes = snap.docs.map(fromSnapshot)
+      emit()
+    },
+    (err) => onError?.(err),
+  )
+
+  return () => {
+    unsubOwn()
+    unsubShared()
+  }
+}
+
+/** Live subscription to a single note for real-time collaborative editing. */
+export function subscribeToNote(
+  noteId: string,
+  cb: (note: Note | null) => void,
+  onError?: (err: Error) => void,
+) {
+  const database = requireDb()
   return onSnapshot(
-    q,
-    (snap) => cb(snap.docs.map(fromSnapshot)),
+    doc(database, COLLECTION, noteId),
+    (snap) => {
+      if (!snap.exists()) {
+        cb(null)
+        return
+      }
+      cb(fromSnapshot(snap as QueryDocumentSnapshot<DocumentData>))
+    },
     (err) => onError?.(err),
   )
 }
@@ -120,6 +180,8 @@ export async function createNote(userId: string, input: NewNoteInput = {}) {
     color: input.color ?? null,
     isDeleted: false,
     isShared: false,
+    sharedWith: [],
+    lastEditedBy: null,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     deletedAt: null,

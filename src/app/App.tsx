@@ -6,6 +6,7 @@ import ToolsDashboardPage from '@/app/pages/ToolsDashboardPage'
 import FirebaseMonitorPage from '@/app/pages/FirebaseMonitorPage'
 import SettingsPage from '@/app/pages/SettingsPage'
 import UserManagementPage from '@/app/pages/UserManagementPage'
+import DownloadAppPage from '@/app/pages/DownloadAppPage'
 import LoginPage from '@/features/auth/pages/LoginPage'
 import SignupPage from '@/features/auth/pages/SignupPage'
 import ForgotPasswordPage from '@/features/auth/pages/ForgotPasswordPage'
@@ -15,7 +16,6 @@ import FavoritesPage from '@/tools/notes/pages/FavoritesPage'
 import TrashPage from '@/tools/notes/pages/TrashPage'
 import ShareNotePage from '@/tools/notes/pages/ShareNotePage'
 import TasksPage from '@/tools/notes/tasks/pages/TasksPage'
-import MarkitdownToolPage from '@/tools/markitdown/MarkitdownToolPage'
 import TelegramToolPage from '@/tools/telegram/TelegramToolPage'
 
 /** Redirect already-authenticated users away from auth pages. */
@@ -59,7 +59,6 @@ export default function App() {
           <Route path="tasks" element={<TasksPage />} />
           <Route path="trash" element={<TrashPage />} />
         </Route>
-        <Route path="/tools/markitdown" element={<MarkitdownToolPage />} />
         <Route path="/tools/telegram" element={<TelegramToolPage />} />
         <Route path="/tools/tasks" element={<Navigate to="/tools/notes/tasks" replace />} />
         <Route path="/folder/:folderId" element={<LegacyFolderRedirect />} />
@@ -67,6 +66,7 @@ export default function App() {
         <Route path="/tasks" element={<Navigate to="/tools/notes/tasks" replace />} />
         <Route path="/trash" element={<Navigate to="/tools/notes/trash" replace />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/download" element={<DownloadAppPage />} />
         <Route
           path="/users"
           element={user?.role === 'admin' ? <UserManagementPage /> : <Navigate to="/" replace />}

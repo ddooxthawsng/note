@@ -86,7 +86,7 @@ export default function NotesToolLayout() {
 
   useEffect(() => {
     if (user) {
-      subscribeNotes(user.uid)
+      subscribeNotes(user.uid, user.email)
       subscribeFolders(user.uid)
       subscribeTasks(user.uid)
     }
@@ -145,15 +145,15 @@ export default function NotesToolLayout() {
         onToggleCollapsed={() => setSidebarCollapsed((value) => !value)}
       />
       <section className="flex min-w-0 flex-1 flex-col overflow-y-auto lg:overflow-hidden">
-        <div className="border-b border-hairline bg-canvas px-4 py-3 dark:border-gray-800 dark:bg-dark">
+        <div className="relative z-30 border-b border-hairline/80 bg-canvas/85 px-3 sm:px-4 py-3 backdrop-blur-xl dark:border-gray-800/80 dark:bg-dark/85">
           <div className="flex flex-wrap items-center gap-2">
             {showNoteActions && (
-              <div className="min-w-[130px] pr-2">
+              <div className="min-w-[110px] pr-2">
                 <h1 className="font-serif text-xl font-medium leading-tight text-ink dark:text-gray-100">{titleText}</h1>
                 <p className="text-xs text-ink-muted">{countLabel}</p>
               </div>
             )}
-            <div className="relative min-w-[220px] flex-1 max-w-xl">
+            <div className="relative min-w-[160px] flex-1 max-w-xl">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-muted" />
             <input
               value={search}
@@ -176,8 +176,8 @@ export default function NotesToolLayout() {
                   </button>
                   {sortOpen && (
                     <>
-                      <div className="fixed inset-0 z-10" onClick={() => setSortOpen(false)} />
-                      <div className="absolute right-0 z-20 mt-1 w-40 rounded-md border border-hairline bg-canvas p-1 shadow-lg animate-scale-in dark:border-gray-800 dark:bg-dark-elevated">
+                      <div className="fixed inset-0 z-40" onClick={() => setSortOpen(false)} />
+                      <div className="absolute right-0 z-50 mt-1 w-40 rounded-md border border-hairline bg-canvas p-1 shadow-xl animate-scale-in dark:border-gray-800 dark:bg-dark-elevated">
                         {sortOptions.map((o) => (
                           <button
                             key={o.value}
@@ -212,8 +212,8 @@ export default function NotesToolLayout() {
                   </button>
                   {settingsOpen && (
                     <>
-                      <div className="fixed inset-0 z-10" onClick={() => setSettingsOpen(false)} />
-                      <div className="absolute right-0 z-20 mt-1 w-56 rounded-md border border-hairline bg-canvas p-3 shadow-lg animate-scale-in dark:border-gray-800 dark:bg-dark-elevated">
+                      <div className="fixed inset-0 z-40" onClick={() => setSettingsOpen(false)} />
+                      <div className="absolute right-0 z-50 mt-1 w-56 rounded-md border border-hairline bg-canvas p-3 shadow-xl animate-scale-in dark:border-gray-800 dark:bg-dark-elevated">
                         <div className="mb-3">
                           <p className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-ink-muted">Display</p>
                           <div className="flex rounded-md border border-hairline bg-canvas-soft p-0.5 dark:border-gray-800 dark:bg-dark">
