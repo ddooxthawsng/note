@@ -1,3 +1,11 @@
+import {
+  rustFormatBytes,
+  rustInferMimeType,
+  rustPartCount,
+  rustPlanTelegramParts,
+  rustValidateManifest,
+} from '@/shared/wasm/rustCore'
+
 export const maxTelegramPartBytes = 20 * 1024 * 1024
 
 export interface TelegramPart {
@@ -45,6 +53,8 @@ const imageMimeTypes: Record<string, string> = {
 }
 
 export function formatBytes(bytes: number) {
+  const wasmResult = rustFormatBytes(bytes)
+  if (wasmResult !== null) return wasmResult
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
@@ -52,10 +62,14 @@ export function formatBytes(bytes: number) {
 }
 
 export function partCount(size: number, partSize = maxTelegramPartBytes) {
+  const wasmResult = rustPartCount(size, partSize)
+  if (wasmResult !== null) return wasmResult
   return Math.max(1, Math.ceil(size / partSize))
 }
 
 export function planTelegramParts(size: number, partSize = maxTelegramPartBytes): TelegramPartRange[] {
+  const wasmResult = rustPlanTelegramParts(size, partSize)
+  if (wasmResult !== null) return wasmResult
   return Array.from({ length: partCount(size, partSize) }, (_, index) => {
     const start = index * partSize
     return { index, start, end: Math.min(size, start + partSize) }
@@ -63,11 +77,14 @@ export function planTelegramParts(size: number, partSize = maxTelegramPartBytes)
 }
 
 export function createManifest(file: TelegramFileLike, parts: TelegramPart[]): TelegramManifest {
+  const mimeType =
+    rustInferMimeType(file.name, file.type) ??
+    (file.type || imageMimeTypes[file.name.split('.').pop()?.toLowerCase() ?? ''] || 'application/octet-stream')
   return {
     version: 1,
     tool: 'telegram-drive',
     fileName: file.name,
-    mimeType: file.type || imageMimeTypes[file.name.split('.').pop()?.toLowerCase() ?? ''] || 'application/octet-stream',
+    mimeType,
     size: file.size,
     partSize: maxTelegramPartBytes,
     createdAt: new Date().toISOString(),
@@ -76,6 +93,8 @@ export function createManifest(file: TelegramFileLike, parts: TelegramPart[]): T
 }
 
 export function parseManifest(raw: string): TelegramManifest {
+  const wasmResult = rustValidateManifest(raw)
+  if (wasmResult !== null) return wasmResult
   const manifest = JSON.parse(raw) as TelegramManifest
   if (
     manifest?.version !== 1 ||

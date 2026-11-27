@@ -1,0 +1,16 @@
+{
+  "name": "tool-core",
+  "type": "module",
+  "description": "Rust/WASM core logic migrated with rust-anything parity checks for Tool Web & Android",
+  "version": "0.1.0",
+  "files": [
+    "tool_core_bg.wasm",
+    "tool_core.js",
+    "tool_core.d.ts"
+  ],
+  "main": "tool_core.js",
+  "types": "tool_core.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

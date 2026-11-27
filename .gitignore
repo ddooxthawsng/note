@@ -8,6 +8,7 @@ dist
 dist-ssr
 *.local
 *.apk
+rust-core/target/
 
 # editor / os
 .DS_Store

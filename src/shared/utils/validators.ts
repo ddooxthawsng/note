@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { rustPasswordStrength } from '@/shared/wasm/rustCore'
 
 export const emailSchema = z.string().email('Enter a valid email')
 
@@ -27,6 +28,8 @@ export function firstError(result: z.SafeParseReturnType<unknown, unknown>): str
 
 /** Rough password strength score 0–4 for the meter. */
 export function passwordStrength(pw: string): number {
+  const wasmScore = rustPasswordStrength(pw)
+  if (wasmScore !== null) return wasmScore
   let score = 0
   if (pw.length >= 6) score++
   if (pw.length >= 10) score++

@@ -15,6 +15,7 @@ import {
   type QueryDocumentSnapshot,
 } from 'firebase/firestore'
 import { db } from '@/shared/lib/firebase'
+import { rustCountWords } from '@/shared/wasm/rustCore'
 import type { Note, NoteDoc, NewNoteInput, NoteHistoryEntry } from '@/tools/notes/types/note'
 
 const COLLECTION = 'notes'
@@ -82,6 +83,8 @@ function historyEntry(d: NoteDoc): NoteHistoryEntry {
 }
 
 export function countWords(html: string): number {
+  const wasmCount = rustCountWords(html)
+  if (wasmCount !== null) return wasmCount
   const text = html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').trim()
   if (!text) return 0
   return text.split(/\s+/).length

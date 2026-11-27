@@ -14,6 +14,7 @@ import {
   type QueryDocumentSnapshot,
 } from 'firebase/firestore'
 import { db } from '@/shared/lib/firebase'
+import { rustSha256Hex } from '@/shared/wasm/rustCore'
 import { parseManifest, type TelegramManifest } from '@/tools/telegram/telegramCore'
 
 const COLLECTION = 'telegramFiles'
@@ -138,6 +139,8 @@ export async function telegramFileId(userId: string, manifest: TelegramManifest)
     manifest.size,
     manifest.parts.map((part) => part.fileId),
   ])
+  const wasmHash = rustSha256Hex(identity)
+  if (wasmHash !== null) return wasmHash
   const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(identity))
   return Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
